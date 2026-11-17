@@ -44,3 +44,4 @@ test-results/
 .vscode/*
 !.vscode/extensions.json
 .idea/
+packages/db/parts/
