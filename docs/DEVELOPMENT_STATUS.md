@@ -1,7 +1,7 @@
 # Development status
 
 Updated: 17 November 2026
-Phase: **1 — Foundation**
+Phase: **2 — Core Gym Management**
 
 This file is the single honest record of what works, what does not, and what
 is waiting on someone. A feature is listed as complete only when its critical
@@ -62,6 +62,38 @@ only when real credentials have been used and a real call has succeeded.
 | Platform support access | Demands a written reason and writes an audit row the gym owner can see |
 | Transactional email adapter | Provider behind an interface; with none configured, messages go to the log rather than nowhere |
 | **Account flows suite — 30 tests** | **Passing on the application role** |
+| **— Phase 2 —** | |
+| Money in integer paise | 54-test suite: round trips, 1,000 additions of ₹0.07 landing on ₹70.00 exactly |
+| Tax-inclusive GST split | ₹1,500 at 18% → ₹1,271.19 + ₹228.81; CGST and SGST always sum to the tax, at every amount tested |
+| Inclusive membership dates | 1 Nov + 1 month ends 30 Nov; 31 Jan + 1 month clamps to 28 Feb instead of rolling into March |
+| Indian financial year | April–March, written 2026-27 |
+| Member registration with duplicate detection | Reports matches, does not block — families share phone numbers |
+| Member codes | Allocated from a per-gym gapless sequence |
+| Member list, search and filters | Server-side, scope-narrowed: a trainer's list is their own members |
+| Medical data | Not fetched at all without `members.medical.read` — not fetched then hidden |
+| Member edit and archive | Archive is a soft delete; invoices, payments and attendance survive |
+| Membership plans | Per-plan price, tax rate, grace period, freeze allowance, transferability |
+| Quote endpoint | The same function the sale uses, so the counter and the invoice cannot disagree |
+| Selling and renewing | Subscription, invoice, lines, payment and member expiry in **one** transaction |
+| Renewal stacking | A renewal starts the day after the current end date — no paid days are lost |
+| **Gapless invoice numbering** | **Eight concurrent sales produce eight sequential numbers, no gaps, no duplicates** |
+| Freeze and unfreeze | Credits lost days to the end; the allowance is cumulative across the membership |
+| Extension and cancellation | Both demand a written reason; a refund is a new row, never an edit to the payment |
+| Expiry job | Idempotent and batched, safe to run hourly |
+| QR check-in | Rotating tokens; re-issuing revokes the previous code |
+| Check-in eligibility | No membership, expired, frozen, suspended, sessions exhausted — each refused by name |
+| Grace period at the door | Admitted with a renewal prompt rather than turned away |
+| **Duplicate check-in guard** | **Two simultaneous scans produce exactly one attendance row** |
+| Override at the door | Requires a reason; written to the audit log with the staff member's name |
+| Counter payments | Receipt numbers from a gapless sequence; overpayment refused |
+| **Razorpay webhook** | **Signature verified over the raw body before parsing; a body altered after signing is refused; capture is idempotent on the order id** |
+| Gateway guards | Amount mismatch and tenant mismatch both refused; the tenant comes from our stored row, never the request |
+| Dashboard | Members, attendance, money, leads and retention over eight configurable ranges |
+| Dashboard charts | Revenue, visits and joins by month with empty months filled; plan mix, payment mix, peak hours |
+| Action lists | Expiring soon, money owed, gone quiet — who to ring, not just how the month went |
+| **Phase 2 operations suite — 54 tests** | **Against real PostgreSQL, on the application role** |
+| **Contract suite — 10 tests** | **Contract enums compared against Prisma's generated enums, so they cannot drift** |
+| **Phase 2 browser suite — 48 checks** | **Playwright: registration, plan, sale, check-in, payment, dashboard, edit — zero console errors** |
 
 ### What the isolation suite actually proves
 
@@ -81,24 +113,22 @@ Acting as Gym A, against Gym B's real record ids:
 
 ---
 
-## In progress
-
-Phase 1 is functionally complete. What remains in it is deployment, which is
-blocked on credentials.
+## In progress — the rest of Phase 2
 
 | Item | Note |
 | --- | --- |
+| Invoice and receipt PDFs | The invoice data is complete and correct; nothing renders it to PDF yet |
+| Bulk member import from Excel or CSV | Contracts are written; the parser and preview screen are not |
+| Subscriptions list screen | Freeze, extend, cancel and transfer work over the API and are tested; there is no screen for them yet, so the sidebar does not offer one |
+| Invoices and expenses screens | Same — not built, and therefore not linked |
+| Razorpay checkout in the browser | The server half is built and tested; the checkout flow needs real test credentials |
 | First deployment to Hostinger over HTTPS | Blocked: needs a database connection string and a GitHub repository |
 
----
+### What is deliberately not in the navigation
 
-## Next — Phase 2
-
-- Member registration, search, filters, profile and bulk import
-- Membership plans, selling, renewal, freeze, extension, transfer
-- QR attendance with subscription validation at the door
-- Payments, GST invoices and Razorpay in test mode
-- The dashboard's eight charts and its configurable date filter
+The sidebar lists only pages that exist. Every unbuilt destination carries
+`built: false` in `apps/web/app/(gym)/layout.tsx` and is hidden until its
+screen lands — a menu item that 404s teaches people not to trust the menu.
 
 ---
 
@@ -134,6 +164,14 @@ Recorded because each one says something about where the bugs actually are.
 | Login resolved no organization: the membership lookup ran with no actor context, so row-level security correctly denied the row | HTTP smoke test | It failed **closed** — the user landed with no gym rather than the wrong one — which is the right failure direction, but still a bug. The integration test had missed it because it used the privileged job role; that test now runs on the application role, as production does. |
 | The CSP nonce never reached Next's script tags, so every page loaded with its JavaScript blocked | A real browser, via Playwright | Forms silently degraded to native GET submissions — which put a password in a URL. No amount of curl testing would have caught it: curl does not execute a Content-Security-Policy. The fix sets the CSP on the request headers so Next can stamp the nonce, and pages that ship interactive JavaScript now render per request. Both auth forms also carry `method="post"` so a JavaScript failure can never again put credentials in a query string. |
 | The health endpoint was behind the auth gate | HTTP smoke test | Uptime monitoring would have reported the site down from the first deploy. |
+| The duplicate check-in handler ran a query inside a transaction PostgreSQL had already aborted | Phase 2 operations suite | Two people scanning the same card a second apart produced a 500 instead of "already checked in". PostgreSQL aborts the whole transaction when a statement fails, so the recovery read could never have worked. The identity is now carried out of the failed transaction in the error and the winning row is read in a fresh one. |
+| `make_interval(months => …)` with a Prisma number | Phase 2 operations suite | Prisma sends a JavaScript number as `int8` and PostgreSQL has no such overload, so **every dashboard chart threw**. A unit test on the service would have passed; only a real database has the function signature. |
+| The dashboard route dropped custom date ranges | Reading the code while wiring the route | The service names the fields `from`/`to`, the contract said `fromDate`/`toDate`, and both are optional — so a custom range silently showed the default instead. Every route now maps fields one by one rather than spreading, which turns this class of mistake into a compile error. |
+| Member addresses and emergency contacts were silently discarded | Phase 2 browser suite | The contract nested them as `address: { … }`; the service takes flat `addressLine1`, `city`, `postalCode`. Zod stripped the unknown keys and TypeScript saw nothing wrong, because every one of those fields is optional. A receptionist would have typed an address at the desk and found it gone. Contracts are now flat, matching the columns. |
+| The CSRF origin check depended on `APP_URL` being exactly right | Phase 2 browser suite | On any host where `APP_URL` did not match the address the browser actually used, **every form on the site returned 403** — a miserable thing to debug at go-live, behind a proxy, on launch day. The check now compares the Origin against the `Host` the browser addressed, which configures itself; `APP_URL` is an extra allowance rather than the gate. |
+| Seven contract schemas had drifted from the database and the services | Typechecking the new routes, then a contract test | An invented `BIOMETRIC` check-in method, a `NETBANKING` payment method the enum does not have, plan fields named `sessionsTotal` and `isPublic` that the service calls `sessionCount` and `visibleToMembers`. A test now compares every contract enum to Prisma's generated enums, so the schema and the API cannot drift apart in silence. |
+| The sidebar linked to eleven pages that do not exist | Phase 2 browser suite, via 404s on Next's prefetches | Every one was a button that did nothing. The navigation now hides anything unbuilt. |
+| The member profile's Edit button went nowhere | Phase 2 browser suite | Same class of problem; the page was built rather than the button removed, since the service behind it was already written and tested. |
 
 ---
 
@@ -150,6 +188,14 @@ Recorded because each one says something about where the bugs actually are.
 ---
 
 ## Changelog
+
+**17 November 2026 — Phase 2 engine, API and screens**
+Members, plans, the subscription lifecycle, attendance, payments, the
+Razorpay webhook and the dashboard. 24 API routes, 9 screens, and the money
+and date arithmetic tested hardest because that is where a bug costs a real
+gym real rupees and nobody notices for a month. 290 checks passing: 168
+tests, 74 HTTP checks and 48 browser checks. Nine bugs found and fixed along
+the way, listed above — five of them invisible to the typechecker.
 
 **17 November 2026 — Phase 1 complete**
 Password reset, staff invitations, two-factor enrolment, member one-time-code

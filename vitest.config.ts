@@ -18,6 +18,10 @@ export default defineConfig({
       '@gym/db': new URL('./packages/db/src/index.ts', import.meta.url).pathname,
       '@gym/core': new URL('./packages/core/src/index.ts', import.meta.url).pathname,
       '@gym/contracts': new URL('./packages/contracts/src/index.ts', import.meta.url).pathname,
+      '@gym/integrations': new URL(
+        './packages/integrations/src/index.ts',
+        import.meta.url,
+      ).pathname,
     },
   },
   test: {

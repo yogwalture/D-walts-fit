@@ -1,0 +1,383 @@
+/**
+ * Phase 2 in a real browser.
+ *
+ * The things only a browser catches: whether the JavaScript actually runs
+ * under the content security policy, whether the duplicate warning appears
+ * as you type, whether the quote arrives when a plan is picked, and whether
+ * a check-in puts the member's name on screen.
+ *
+ * A CSP that blocks every script passes every unit test ever written. That
+ * bug has already happened once on this project, which is why this file
+ * exists and why it fails loudly on a single console error.
+ */
+
+import { createRequire } from 'node:module';
+
+/**
+ * Playwright may be a project dependency or installed globally on the build
+ * machine. ESM ignores NODE_PATH, so it is resolved through CommonJS, which
+ * does not — the test runs either way rather than only where it was written.
+ */
+const require = createRequire(import.meta.url);
+const resolvePlaywright = () => {
+  for (const candidate of [
+    'playwright',
+    '/opt/npm-tools/node_modules/playwright',
+    'playwright-core',
+  ]) {
+    try {
+      return require(candidate);
+    } catch {
+      // Try the next.
+    }
+  }
+  throw new Error('Playwright is not installed. `pnpm add -D playwright` or install it globally.');
+};
+
+const { chromium } = resolvePlaywright();
+
+const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3100';
+const stamp = Date.now();
+
+const gym = {
+  name: `Browser Gym ${stamp}`,
+  owner: 'Browser Owner',
+  email: `browser.${stamp}@example.com`,
+  phone: `98${String(stamp).slice(-8)}`,
+  password: 'correct horse battery staple 47',
+};
+
+const member = {
+  firstName: 'Ravi',
+  lastName: 'Kulkarni',
+  phone: `97${String(stamp).slice(-8)}`,
+};
+
+let passed = 0;
+let failed = 0;
+const consoleErrors = [];
+const badResponses = [];
+
+function check(label, condition, detail = '') {
+  if (condition) {
+    passed += 1;
+    console.log(`  ok   ${label}`);
+  } else {
+    failed += 1;
+    console.log(`  FAIL ${label}${detail ? ` — ${detail}` : ''}`);
+  }
+}
+
+function section(name) {
+  console.log(`\n${name}`);
+}
+
+const browser = await chromium.launch();
+const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+const page = await context.newPage();
+
+page.on('console', (message) => {
+  if (message.type() !== 'error') return;
+  const text = message.text();
+  // "Failed to load resource" duplicates what the response listener records,
+  // with none of the detail — the status and URL are tracked below instead.
+  if (text.startsWith('Failed to load resource')) return;
+  consoleErrors.push(text);
+});
+
+page.on('response', (response) => {
+  const status = response.status();
+  if (status < 400) return;
+
+  const url = response.url();
+  // A 401 on an API probe is a deliberate part of the flow; an icon that is
+  // not there is cosmetic. Everything else is a real broken request.
+  if (/favicon|\.ico$|icon\.svg/.test(url)) return;
+  badResponses.push(`${status} ${response.request().method()} ${url.replace(BASE, '')}`);
+});
+
+// A prefetch cancelled by the navigation that followed it is normal and is
+// deliberately not recorded: Playwright reports those as request failures.
+
+try {
+  // ---------------------------------------------------------------- setup ---
+  section('Registering a gym');
+  await page.goto(`${BASE}/register-gym`, { waitUntil: 'domcontentloaded' });
+
+  await page.fill('#gymName', gym.name);
+  await page.fill('#ownerName', gym.owner);
+  await page.fill('#email', gym.email);
+  await page.fill('#phone', gym.phone);
+  await page.fill('#password', gym.password);
+
+  const terms = page.locator('input[type="checkbox"]').first();
+  if (await terms.count()) await terms.check();
+
+  await page.click('button[type="submit"]');
+  await page.waitForURL(/\/dashboard/, { timeout: 30_000 });
+  check('registration lands on the dashboard', page.url().includes('/dashboard'));
+
+  // The password must never reach the URL. This is what the CSP bug caused:
+  // JavaScript blocked, the form degraded to a native GET, credentials in
+  // the address bar and in every log between here and the server.
+  check('no credentials in the URL', !page.url().includes('password'), page.url());
+
+  // ------------------------------------------------------------ dashboard ---
+  section('Dashboard');
+  const emptyState = await page.getByText('No members yet').count();
+  check('an empty gym says so rather than inventing numbers', emptyState > 0);
+
+  // ----------------------------------------------------------------- plan ---
+  section('Creating a plan');
+  await page.goto(`${BASE}/memberships/plans`, { waitUntil: 'domcontentloaded' });
+  check('plans page renders', (await page.getByRole('heading', { name: 'Plans' }).count()) > 0);
+
+  await page.getByRole('button', { name: 'New plan' }).click();
+  await page.fill('#plan-name', 'Monthly');
+  await page.fill('#plan-price', '1500');
+  await page.fill('#plan-graceDays', '3');
+  await page.getByRole('button', { name: 'Create plan' }).click();
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Monthly'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('the plan appears in the list', (await page.getByText('Monthly').count()) > 0);
+  check('its price is formatted in rupees', (await page.getByText('₹1,500.00').count()) > 0);
+  check('its grace period is shown', (await page.getByText('3-day grace').count()) > 0);
+
+  // --------------------------------------------------------------- member ---
+  section('Registering a member');
+  await page.goto(`${BASE}/members/new`, { waitUntil: 'domcontentloaded' });
+
+  await page.fill('#field-firstName', member.firstName);
+  await page.fill('#field-lastName', member.lastName);
+  await page.fill('#field-phone', member.phone);
+
+  // The optional details are inside a <details>, which must be opened before
+  // its fields can be filled. These are the fields that were silently thrown
+  // away when the contract nested them.
+  await page.locator('details summary').click();
+  await page.fill('#field-addressLine1', '12 MG Road');
+  await page.fill('#field-city', 'Pune');
+  await page.fill('#field-emergencyContactName', 'Sunita Kulkarni');
+  await page.fill('#field-emergencyContactPhone', '9823012345');
+
+  await page.click('button[type="submit"]');
+
+  await page.waitForURL(/\/members\/[0-9a-f-]{36}/, { timeout: 20_000 });
+  // Strip the ?welcome=1 the redirect adds, so sub-paths build correctly.
+  const memberUrl = page.url().split('?')[0];
+  check('registration lands on the profile', /\/members\/[0-9a-f-]{36}/.test(memberUrl));
+  check(
+    'the member code is shown',
+    (await page.getByText(/M\d{5}/).count()) > 0,
+  );
+  check(
+    'the address typed at the desk was actually saved',
+    (await page.getByText(/12 MG Road/).count()) > 0,
+  );
+  check(
+    'and so was the emergency contact',
+    (await page.getByText(/Sunita Kulkarni/).count()) > 0,
+  );
+
+  // --- the duplicate warning, as it is typed
+  section('The duplicate check');
+  await page.goto(`${BASE}/members/new`, { waitUntil: 'domcontentloaded' });
+  await page.fill('#field-firstName', 'Priya');
+  await page.fill('#field-phone', member.phone);
+
+  // Typed, debounced, fetched, rendered — all of it client-side JavaScript.
+  await page.waitForFunction(
+    () => document.body.innerText.includes('already on file'),
+    undefined,
+    { timeout: 10_000 },
+  );
+  check('a repeated number warns before submitting', true);
+  check(
+    'it names who it collided with',
+    (await page.getByText(`${member.firstName} ${member.lastName}`).count()) > 0,
+  );
+
+  const submitDisabled = await page
+    .locator('button[type="submit"]')
+    .first()
+    .isDisabled();
+  check('the form is still submittable, since families share numbers', !submitDisabled);
+
+  // ------------------------------------------------------------ the sale ---
+  section('Selling a membership');
+  await page.goto(memberUrl, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: 'Sell membership' }).click();
+
+  await page.selectOption('#plan', { index: 1 });
+
+  // The quote comes from the server, computed by the same function the sale
+  // uses. If this never appears, the counter is guessing at the price.
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Before tax'),
+    undefined,
+    { timeout: 15_000 },
+  );
+  check('the server quotes the price', true);
+  check('the total is the plan price', (await page.getByText('₹1,500.00').count()) > 0);
+  check('tax is backed out of it', (await page.getByText('₹228.81').count()) > 0);
+  check('the taxable part is shown', (await page.getByText('₹1,271.19').count()) > 0);
+  check(
+    'it says the last day is included',
+    (await page.getByText(/last day is included/i).count()) > 0,
+  );
+
+  await page.getByRole('button', { name: /Take ₹/ }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Monthly') && !document.body.innerText.includes('Before tax'),
+    undefined,
+    { timeout: 20_000 },
+  );
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  check('the membership is on the profile', (await page.getByText('Monthly').count()) > 0);
+  check(
+    'it reads as active with days left',
+    (await page.getByText(/\d+d left/).count()) > 0,
+  );
+
+  // --------------------------------------------------------- the check-in ---
+  section('Checking a member in');
+  await page.goto(`${BASE}/attendance/today`, { waitUntil: 'domcontentloaded' });
+  check('the check-in box is focused and ready', (await page.locator('#scan').count()) > 0);
+
+  const codeText = await page.evaluate(async () => {
+    const response = await fetch('/api/v1/members?pageSize=1');
+    const payload = await response.json();
+    return payload.data?.[0]?.memberCode ?? null;
+  });
+  check('the members API answers the browser', Boolean(codeText), String(codeText));
+
+  await page.fill('#scan', codeText);
+  await page.press('#scan', 'Enter');
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Welcome'),
+    undefined,
+    { timeout: 15_000 },
+  );
+  check('the member is let in', true);
+  check(
+    'their name is on screen, not just a code',
+    (await page.getByText(`${member.firstName} ${member.lastName}`).count()) > 0,
+  );
+  check('the visit is listed', (await page.getByText('Still in').count()) > 0);
+
+  // --- a second scan the same day
+  await page.fill('#scan', codeText);
+  await page.press('#scan', 'Enter');
+  await page.waitForFunction(
+    () => document.body.innerText.includes('already checked in'),
+    undefined,
+    { timeout: 15_000 },
+  );
+  check('a second scan is refused, with the name still shown', true);
+  check('it is not shown as an error', (await page.getByText('Not in').count()) > 0);
+
+  // ------------------------------------------------------------- the money ---
+  section('Payments');
+  await page.goto(`${BASE}/finance/payments`, { waitUntil: 'domcontentloaded' });
+  check('the payment is in the ledger', (await page.getByText('₹1,500.00').count()) > 0);
+  check(
+    'a receipt number was issued',
+    (await page.getByText(/RCP\/\d{4}-\d{2}\/\d{5}/).count()) > 0,
+  );
+  check('today\'s collection is totalled', (await page.getByText('Collected today').count()) > 0);
+
+  // --------------------------------------------------------- the dashboard ---
+  section('The dashboard, with real data');
+  await page.goto(`${BASE}/dashboard`, { waitUntil: 'domcontentloaded' });
+  check('it is no longer empty', (await page.getByText('No members yet').count()) === 0);
+  check('members are counted', (await page.getByText('Active members').count()) > 0);
+  check('money is counted', (await page.getByText('Collected').count()) > 0);
+  check('the attendance is counted', (await page.getByText('In today').count()) > 0);
+
+  // The charts are client-side Recharts: an SVG means the JavaScript ran.
+  await page.waitForSelector('svg.recharts-surface', { timeout: 15_000 });
+  const charts = await page.locator('svg.recharts-surface').count();
+  check('the charts actually render', charts >= 2, `${charts} found`);
+
+  // The date filter writes to the URL and the server recounts.
+  await page.selectOption('select', 'thisMonth');
+  await page.waitForURL(/range=thisMonth/, { timeout: 15_000 });
+  check('the date filter is in the URL, so it survives a refresh', true);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  check(
+    'and the server honours it',
+    (await page.getByText('This month').count()) > 0,
+  );
+
+  // ---------------------------------------------------------- the members ---
+  section('The members list');
+  await page.goto(`${BASE}/members`, { waitUntil: 'domcontentloaded' });
+  check('the member is listed', (await page.getByText(member.firstName).count()) > 0);
+
+  await page.fill('input[type="search"]', 'Nobody By This Name');
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Nobody matches that'),
+    undefined,
+    { timeout: 15_000 },
+  );
+  check('search filters server-side and says when nothing matches', true);
+
+  // ----------------------------------------------------------- editing ---
+  section('Editing a member');
+  await page.goto(`${memberUrl}/edit`, { waitUntil: 'domcontentloaded' });
+  check('the edit page opens', (await page.locator('#field-firstName').count()) > 0);
+
+  await page.fill('#field-email', 'ravi.kulkarni@example.com');
+  await page.fill('#field-city', 'Chhatrapati Sambhajinagar');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+
+  await page.waitForURL((url) => !url.pathname.endsWith('/edit'), { timeout: 20_000 });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  check(
+    'the change is saved and shown',
+    (await page.getByText('ravi.kulkarni@example.com').count()) > 0,
+  );
+  check(
+    'and so is the address',
+    (await page.getByText(/Chhatrapati Sambhajinagar/).count()) > 0,
+  );
+
+  // ------------------------------------------------------------- the CSP ---
+  section('Security headers');
+  const response = await page.goto(`${BASE}/dashboard`, { waitUntil: 'domcontentloaded' });
+  const headers = response.headers();
+  check('a nonce-based CSP is set', (headers['content-security-policy'] ?? '').includes('nonce-'));
+  check('the page is not framable', (headers['x-frame-options'] ?? '').toLowerCase() === 'deny');
+  check(
+    'no MIME sniffing',
+    (headers['x-content-type-options'] ?? '') === 'nosniff',
+  );
+} catch (error) {
+  failed += 1;
+  console.log(`\n  FAIL threw — ${error.message}`);
+  await page.screenshot({ path: '/tmp/phase2-failure.png', fullPage: true }).catch(() => {});
+  console.log('  screenshot: /tmp/phase2-failure.png');
+} finally {
+  section('Console and network');
+  check(
+    'no console errors',
+    consoleErrors.length === 0,
+    consoleErrors.slice(0, 3).join(' | '),
+  );
+  check(
+    'nothing returned an error status',
+    badResponses.length === 0,
+    badResponses.slice(0, 5).join(' | '),
+  );
+
+  await browser.close();
+
+  console.log(`\n${passed} passed, ${failed} failed`);
+  process.exit(failed > 0 ? 1 : 0);
+}

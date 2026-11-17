@@ -233,6 +233,92 @@ body=$(curl -s -b "$JAR" -X POST "$BASE/api/v1/session/organization" \
   -d '{"organizationId":"00000000-0000-0000-0000-000000000000"}')
 has "a cross-origin POST carrying the cookie is refused" "$body" "FORBIDDEN"
 
+# ------------------------------------------------------- Phase 2 endpoints ---
+printf '\nphase 2 endpoints, signed out\n'
+
+for path in \
+  "/api/v1/members" \
+  "/api/v1/memberships/plans" \
+  "/api/v1/attendance/today" \
+  "/api/v1/finance/payments" \
+  "/api/v1/dashboard" \
+  "/api/v1/dashboard/charts" \
+  "/api/v1/dashboard/actions"
+do
+  code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE$path")
+  check "$path is closed to a stranger" "401" "$code"
+done
+
+printf '\nthe Razorpay webhook\n'
+
+# No signature at all. This endpoint is public by necessity, so it is the one
+# place an outsider can reach that moves money — it must refuse everything
+# that is not signed by Razorpay.
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/webhooks/razorpay" \
+  -H 'content-type: application/json' \
+  -d '{"event":"payment.captured","payload":{"payment":{"entity":{"id":"pay_forged","order_id":"order_forged","amount":150000}}}}')
+case "$code" in
+  400|503) ok "an unsigned webhook is refused (got $code)";;
+  *) bad "an unsigned webhook is refused" "400 or 503" "$code";;
+esac
+
+# A plausible but wrong signature.
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/webhooks/razorpay" \
+  -H 'content-type: application/json' \
+  -H 'x-razorpay-signature: 0000000000000000000000000000000000000000000000000000000000000000' \
+  -d '{"event":"payment.captured","payload":{"payment":{"entity":{"id":"pay_forged","order_id":"order_forged","amount":150000}}}}')
+case "$code" in
+  400|503) ok "a forged signature is refused (got $code)";;
+  *) bad "a forged signature is refused" "400 or 503" "$code";;
+esac
+
+# With a webhook secret in the environment, the signature path itself can be
+# exercised rather than only the "not configured" branch. Run this script with
+# RAZORPAY_WEBHOOK_SECRET set to cover it; without one, 503 above is as far as
+# a request gets and these are skipped rather than silently passing.
+if [ -n "${RAZORPAY_WEBHOOK_SECRET:-}" ] && command -v openssl >/dev/null 2>&1; then
+  WH_BODY='{"event":"payment.captured","payload":{"payment":{"entity":{"id":"pay_smoke","order_id":"order_not_ours","amount":150000}}}}'
+  WH_SIG=$(printf '%s' "$WH_BODY" | openssl dgst -sha256 -hmac "$RAZORPAY_WEBHOOK_SECRET" -hex | sed 's/.*= //')
+
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/webhooks/razorpay" \
+    -H 'content-type: application/json' -H "x-razorpay-signature: $WH_SIG" -d "$WH_BODY")
+  check "a correctly signed webhook is accepted" "200" "$code"
+
+  # The attack that matters: sign a real amount, then raise it in flight.
+  TAMPERED='{"event":"payment.captured","payload":{"payment":{"entity":{"id":"pay_smoke","order_id":"order_not_ours","amount":9900000}}}}'
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/webhooks/razorpay" \
+    -H 'content-type: application/json' -H "x-razorpay-signature: $WH_SIG" -d "$TAMPERED")
+  check "a body altered after signing is refused" "400" "$code"
+else
+  printf '  - signature path skipped (set RAZORPAY_WEBHOOK_SECRET to cover it)\n'
+fi
+
+printf '\nthe counter cannot claim a gateway payment\n'
+
+JAR2="$(mktemp)"
+curl -s -c "$JAR2" -o /dev/null -X POST "$BASE/api/v1/auth/login" \
+  -H 'content-type: application/json' \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}"
+
+body=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/finance/payments" \
+  -H 'content-type: application/json' \
+  -H "origin: $BASE" \
+  -d '{"memberId":"00000000-0000-0000-0000-000000000000","amount":"1500.00","method":"RAZORPAY"}')
+has "RAZORPAY is rejected at validation, not merely discouraged" "$body" "VALIDATION_FAILED"
+
+# An override at the desk without a recorded reason.
+body=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/attendance/check-in" \
+  -H 'content-type: application/json' \
+  -H "origin: $BASE" \
+  -d '{"memberCode":"M00001","override":true}')
+has "an override without a reason is refused" "$body" "VALIDATION_FAILED"
+
+# A list endpoint cannot be talked into returning the whole table.
+body=$(curl -s -b "$JAR2" "$BASE/api/v1/members?pageSize=100000")
+has "an oversized page size is refused" "$body" "VALIDATION_FAILED"
+
+rm -f "$JAR2"
+
 # ----------------------------------------------------------------- logout ---
 printf '\nlogout\n'
 

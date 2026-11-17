@@ -1,7 +1,7 @@
 import { cache } from 'react';
 import { redirect } from 'next/navigation';
 import type { SessionView } from '@gym/contracts';
-import { resolveSession } from '@gym/core';
+import { AppError, resolveSession, type ActorContext } from '@gym/core';
 import { basePrismaForAuth } from './db';
 import { readSessionToken } from './session-cookie';
 
@@ -12,17 +12,57 @@ import { readSessionToken } from './session-cookie';
  * it share one resolution per request rather than hitting the database each
  * time it is read.
  */
-export const getSession = cache(async (): Promise<SessionView | null> => {
-  const token = await readSessionToken();
-  if (!token) return null;
+const resolve = cache(
+  async (): Promise<{ view: SessionView; actor: ActorContext } | null> => {
+    const token = await readSessionToken();
+    if (!token) return null;
 
-  try {
-    const { view } = await resolveSession(basePrismaForAuth(), token);
-    return view;
-  } catch {
-    return null;
-  }
+    try {
+      return await resolveSession(basePrismaForAuth(), token);
+    } catch {
+      return null;
+    }
+  },
+);
+
+export const getSession = cache(async (): Promise<SessionView | null> => {
+  const resolved = await resolve();
+  return resolved?.view ?? null;
 });
+
+/**
+ * The same actor the API routes get: the full resolved permission set and
+ * the tenant context services take.
+ *
+ * Server components call services directly rather than fetching their own
+ * API over HTTP — one database round trip instead of a loopback request,
+ * which on shared hosting also means one entry process instead of two.
+ */
+export async function requireActor(nextPath?: string): Promise<{
+  session: SessionView;
+  actor: ActorContext;
+  ctx: { organizationId: string; userId: string; branchIds?: string[] };
+}> {
+  const resolved = await resolve();
+  if (!resolved) {
+    redirect(nextPath ? `/login?next=${encodeURIComponent(nextPath)}` : '/login');
+  }
+
+  const { view, actor } = resolved;
+  if (!actor.organizationId) {
+    throw new AppError('FORBIDDEN', 'Select a gym before using this.');
+  }
+
+  return {
+    session: view,
+    actor,
+    ctx: {
+      organizationId: actor.organizationId,
+      userId: actor.userId,
+      branchIds: actor.permissions.branchIds.length ? actor.permissions.branchIds : undefined,
+    },
+  };
+}
 
 /** For pages that require a signed-in user inside a gym. */
 export async function requireSession(nextPath?: string): Promise<SessionView> {

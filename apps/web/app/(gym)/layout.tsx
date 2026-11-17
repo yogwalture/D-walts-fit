@@ -14,7 +14,17 @@ import { OrganizationSwitcher } from '@/components/organization-switcher';
 interface NavItem {
   href: string;
   label: string;
-  permission: string;
+  /** Omitted for a page any signed-in user may open, such as their own security settings. */
+  permission?: string;
+  /**
+   * Whether the page behind this link exists yet.
+   *
+   * A navigation item for an unbuilt page is a button that does nothing: the
+   * user clicks it, gets a 404, and learns not to trust the menu. Items are
+   * flipped to `true` as their phase lands, so the sidebar always describes
+   * what the product can actually do today.
+   */
+  built: boolean;
 }
 
 interface NavSection {
@@ -25,49 +35,100 @@ interface NavSection {
 const NAVIGATION: NavSection[] = [
   {
     heading: null,
-    items: [{ href: '/dashboard', label: 'Dashboard', permission: 'analytics.dashboard.read' }],
+    items: [
+      {
+        href: '/dashboard',
+        label: 'Dashboard',
+        permission: 'analytics.dashboard.read',
+        built: true,
+      },
+    ],
   },
   {
     heading: 'Members',
     items: [
-      { href: '/members', label: 'Members', permission: 'members.member.read' },
-      { href: '/memberships/plans', label: 'Plans', permission: 'memberships.plan.read' },
+      { href: '/members', label: 'Members', permission: 'members.member.read', built: true },
+      {
+        href: '/memberships/plans',
+        label: 'Plans',
+        permission: 'memberships.plan.read',
+        built: true,
+      },
+      {
+        href: '/attendance/today',
+        label: 'Attendance',
+        permission: 'attendance.record.read',
+        built: true,
+      },
       {
         href: '/memberships/subscriptions',
         label: 'Subscriptions',
         permission: 'memberships.subscription.read',
+        built: false,
       },
-      { href: '/attendance/today', label: 'Attendance', permission: 'attendance.record.read' },
     ],
   },
   {
     heading: 'Money',
     items: [
-      { href: '/finance/payments', label: 'Payments', permission: 'finance.payment.read' },
-      { href: '/finance/invoices', label: 'Invoices', permission: 'finance.invoice.read' },
-      { href: '/finance/expenses', label: 'Expenses', permission: 'finance.expense.read' },
-      { href: '/reports', label: 'Reports', permission: 'finance.report.read' },
+      {
+        href: '/finance/payments',
+        label: 'Payments',
+        permission: 'finance.payment.read',
+        built: true,
+      },
+      {
+        href: '/finance/invoices',
+        label: 'Invoices',
+        permission: 'finance.invoice.read',
+        built: false,
+      },
+      {
+        href: '/finance/expenses',
+        label: 'Expenses',
+        permission: 'finance.expense.read',
+        built: false,
+      },
+      { href: '/reports', label: 'Reports', permission: 'finance.report.read', built: false },
     ],
   },
   {
     heading: 'Growth',
     items: [
-      { href: '/crm/leads', label: 'Leads', permission: 'crm.lead.read' },
-      { href: '/communication/compose', label: 'Messages', permission: 'comms.message.send' },
+      { href: '/crm/leads', label: 'Leads', permission: 'crm.lead.read', built: false },
+      {
+        href: '/communication/compose',
+        label: 'Messages',
+        permission: 'comms.message.send',
+        built: false,
+      },
     ],
   },
   {
     heading: 'Operations',
     items: [
-      { href: '/staff', label: 'Staff', permission: 'staff.profile.read' },
-      { href: '/fitness/workout-plans', label: 'Workouts', permission: 'fitness.workout.read' },
-      { href: '/classes/schedule', label: 'Classes', permission: 'classes.class.read' },
-      { href: '/inventory/products', label: 'Inventory', permission: 'inventory.product.read' },
+      { href: '/staff', label: 'Staff', permission: 'staff.profile.read', built: false },
+      {
+        href: '/fitness/workout-plans',
+        label: 'Workouts',
+        permission: 'fitness.workout.read',
+        built: false,
+      },
+      { href: '/classes/schedule', label: 'Classes', permission: 'classes.class.read', built: false },
+      {
+        href: '/inventory/products',
+        label: 'Inventory',
+        permission: 'inventory.product.read',
+        built: false,
+      },
     ],
   },
   {
-    heading: null,
-    items: [{ href: '/settings/general', label: 'Settings', permission: 'org.settings.read' }],
+    heading: 'Settings',
+    items: [
+      { href: '/settings/users', label: 'Team', permission: 'org.user.read', built: true },
+      { href: '/settings/security', label: 'Security', built: true },
+    ],
   },
 ];
 
@@ -76,7 +137,9 @@ export default async function GymLayout({ children }: { children: React.ReactNod
 
   const sections = NAVIGATION.map((section) => ({
     ...section,
-    items: section.items.filter((item) => holds(session, item.permission)),
+    items: section.items.filter(
+      (item) => item.built && (!item.permission || holds(session, item.permission)),
+    ),
   })).filter((section) => section.items.length > 0);
 
   const gymName = session.organization?.branding.displayName ?? session.organization?.name ?? '';

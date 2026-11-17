@@ -11,7 +11,7 @@ not code.
 
 ## Status
 
-**Phase 1 — Foundation. In progress.**
+**Phase 2 — Core Gym Management. In progress.**
 See [`docs/DEVELOPMENT_STATUS.md`](docs/DEVELOPMENT_STATUS.md) for what is
 complete, pending and blocked. The full architecture and roadmap live in the
 project's architecture document.
@@ -29,8 +29,13 @@ project's architecture document.
 | Authentication | Argon2id, database sessions, TOTP, lockout, organization switching |
 | Account flows | Password reset, staff invitations, two-factor enrolment, member one-time-code login |
 | Administration | Staff management, the platform console, audited support access |
-| Web application | Next.js 15 — marketing page, login, gym registration, permission-aware portal |
-| Tests | **166 passing**: 40 isolation, 34 auth and permissions, 30 account flows, 62 HTTP checks |
+| Members | Registration with duplicate detection, search, filters, profile, edit, archive |
+| Memberships | Plans, quoting, selling, renewal, freeze, extension, cancellation with refund |
+| Attendance | QR and search check-in, eligibility rules at the door, audited overrides, peak hours |
+| Money | Counter payments, GST invoices with gapless numbering, the Razorpay webhook |
+| Dashboard | Eight date ranges, six charts, and the three lists a gym actually works from |
+| Web application | Next.js 15 — marketing page, auth, and nine screens of the gym portal |
+| Tests | **290 passing**: 40 isolation, 34 auth, 30 account flows, 54 operations, 10 contracts, 74 HTTP checks, 48 browser checks |
 
 ---
 
@@ -79,6 +84,18 @@ pnpm db:seed             # permissions, roles, SaaS plans, two demo gyms
 pnpm test:isolation      # prove the tenants are isolated
 pnpm dev                 # http://localhost:3000
 ```
+
+To run everything:
+
+```bash
+pnpm vitest run                                   # 168 tests against a real database
+bash tests/e2e/http-smoke.sh                      # 74 checks against a running server
+node tests/e2e/phase2-browser.mjs                 # 48 checks in a real browser
+```
+
+The browser suite needs Playwright and a server on `http://127.0.0.1:3100`
+(`BASE_URL` overrides it). Set `RAZORPAY_WEBHOOK_SECRET` before the HTTP
+suite to exercise the webhook's signature path as well as its refusals.
 
 Then register a gym at `/register-gym`. You get a tenant, an owner account, a
 branch, a 14-day trial, a tax rate and an invoice sequence — and you land on a

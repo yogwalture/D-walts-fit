@@ -56,6 +56,17 @@ function clientIp(request: Request): string | undefined {
  * Bearer-token clients are exempt — they do not send cookies, so there is
  * nothing for a third-party site to ride on.
  */
+function hostOf(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    // Accepts a full URL ("https://gym.example.com") or a bare host from the
+    // Host header ("gym.example.com:3000").
+    return new URL(value.includes('://') ? value : `https://${value}`).host;
+  } catch {
+    return null;
+  }
+}
+
 function assertSameOrigin(request: Request): void {
   const method = request.method.toUpperCase();
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
@@ -64,21 +75,27 @@ function assertSameOrigin(request: Request): void {
   const origin = request.headers.get('origin');
   if (!origin) return;
 
+  const originHost = hostOf(origin);
+  if (!originHost) throw new AppError('FORBIDDEN', 'Request origin is not allowed.');
+
+  // The Host (or the proxy's X-Forwarded-Host) is the address the browser
+  // actually asked for, so an Origin matching it cannot be cross-site. This
+  // is the check that carries the weight: it configures itself, and so keeps
+  // working behind a proxy, on a preview URL, and on whichever domain the
+  // gym ends up using. APP_URL is an extra allowance, not the gate — getting
+  // it slightly wrong in production would otherwise 403 every form on the
+  // site, which is a miserable thing to debug at go-live.
   const allowed = new Set(
-    [process.env.APP_URL, process.env.NEXT_PUBLIC_APP_URL].filter(Boolean) as string[],
+    [
+      hostOf(request.headers.get('x-forwarded-host')),
+      hostOf(request.headers.get('host')),
+      hostOf(process.env.APP_URL),
+      hostOf(process.env.NEXT_PUBLIC_APP_URL),
+      hostOf(new URL(request.url).origin),
+    ].filter(Boolean) as string[],
   );
-  allowed.add(new URL(request.url).origin);
 
-  const originHost = new URL(origin).host;
-  const permitted = [...allowed].some((value) => {
-    try {
-      return new URL(value).host === originHost;
-    } catch {
-      return false;
-    }
-  });
-
-  if (!permitted) {
+  if (!allowed.has(originHost)) {
     throw new AppError('FORBIDDEN', 'Request origin is not allowed.');
   }
 }

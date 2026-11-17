@@ -45,3 +45,6 @@ test-results/
 !.vscode/extensions.json
 .idea/
 packages/db/parts/
+
+# TypeScript incremental build state — machine-local, never useful in a diff
+*.tsbuildinfo
