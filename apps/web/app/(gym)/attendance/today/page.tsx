@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { peakHours, todaysAttendance } from '@gym/core';
+import { businessDayIso, peakHours, todaysAttendance } from '@gym/core';
 import { requireActor, holds } from '@/lib/current-session';
 import {
   Badge,
@@ -31,8 +31,10 @@ export default async function AttendancePage() {
     todaysAttendance(ctx, actor.permissions, { limit: 100 }),
     holds(session, 'attendance.report.read')
       ? peakHours(ctx, actor.permissions, {
-          fromDate: new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10),
-          toDate: new Date().toISOString().slice(0, 10),
+          // The gym's day, not the server's: a UTC date drops the whole
+          // early-morning rush out of the report until 05:30 IST.
+          fromDate: businessDayIso('Asia/Kolkata', new Date(Date.now() - 30 * 86_400_000)),
+          toDate: businessDayIso(),
         })
       : Promise.resolve([]),
   ]);

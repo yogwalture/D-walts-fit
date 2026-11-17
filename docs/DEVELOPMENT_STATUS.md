@@ -1,6 +1,6 @@
 # Development status
 
-Updated: 17 November 2026
+Updated: 18 November 2026
 Phase: **2 — Core Gym Management**
 
 This file is the single honest record of what works, what does not, and what
@@ -93,7 +93,14 @@ only when real credentials have been used and a real call has succeeded.
 | Action lists | Expiring soon, money owed, gone quiet — who to ring, not just how the month went |
 | **Phase 2 operations suite — 54 tests** | **Against real PostgreSQL, on the application role** |
 | **Contract suite — 10 tests** | **Contract enums compared against Prisma's generated enums, so they cannot drift** |
-| **Phase 2 browser suite — 48 checks** | **Playwright: registration, plan, sale, check-in, payment, dashboard, edit — zero console errors** |
+| **Phase 2 browser suite — 64 checks** | **Playwright: registration, plan, sale, check-in, payment, dashboard, edit, invoices, PDF, freeze — zero console errors** |
+| GST tax invoice as a PDF | Rendered with pdfkit, no headless browser — Hostinger has no Chrome. Carries GSTIN, place of supply, HSN/SAC, taxable value, the CGST/SGST split and the amount in words |
+| The rupee sign actually prints | DejaVu Sans subsetted to 30 KB and inlined; pdfkit's built-in Helvetica has no ₹ and would render every amount as a hollow box |
+| Amounts in words | Lakh and crore, not millions — `rupeesInWords`, 4 tests |
+| Invoices screen | Billed and owed totals, status filter, search; each row opens its PDF |
+| Subscriptions screen | Freeze, unfreeze, extend and cancel on the row, each demanding a reason the server records |
+| The gym's business day is one concept | `businessDayRange` — a UTC day put an Indian gym's "today" from 05:30 to 05:30 |
+| **Invoice and subscription suite — 24 tests** | **Against real PostgreSQL, including a real rendered PDF** |
 
 ### What the isolation suite actually proves
 
@@ -117,10 +124,11 @@ Acting as Gym A, against Gym B's real record ids:
 
 | Item | Note |
 | --- | --- |
-| Invoice and receipt PDFs | The invoice data is complete and correct; nothing renders it to PDF yet |
+| Receipt PDFs | The invoice PDF is done; a separate payment receipt is not |
 | Bulk member import from Excel or CSV | Contracts are written; the parser and preview screen are not |
-| Subscriptions list screen | Freeze, extend, cancel and transfer work over the API and are tested; there is no screen for them yet, so the sidebar does not offer one |
-| Invoices and expenses screens | Same — not built, and therefore not linked |
+| Expenses screen | Not built, and therefore not linked |
+| Transferring a membership between branches | Works over the API and is tested; no screen offers it yet |
+| Devanagari and other Indic names on the PDF | pdfkit cannot shape complex scripts. `hasUnsupportedScript` detects the case so it can be reported rather than printed as boxes; a gym recording names in Marathi needs a different renderer |
 | Razorpay checkout in the browser | The server half is built and tested; the checkout flow needs real test credentials |
 | First deployment to Hostinger over HTTPS | Blocked: needs a database connection string and a GitHub repository |
 
@@ -171,6 +179,12 @@ Recorded because each one says something about where the bugs actually are.
 | The CSRF origin check depended on `APP_URL` being exactly right | Phase 2 browser suite | On any host where `APP_URL` did not match the address the browser actually used, **every form on the site returned 403** — a miserable thing to debug at go-live, behind a proxy, on launch day. The check now compares the Origin against the `Host` the browser addressed, which configures itself; `APP_URL` is an extra allowance rather than the gate. |
 | Seven contract schemas had drifted from the database and the services | Typechecking the new routes, then a contract test | An invented `BIOMETRIC` check-in method, a `NETBANKING` payment method the enum does not have, plan fields named `sessionsTotal` and `isPublic` that the service calls `sessionCount` and `visibleToMembers`. A test now compares every contract enum to Prisma's generated enums, so the schema and the API cannot drift apart in silence. |
 | The sidebar linked to eleven pages that do not exist | Phase 2 browser suite, via 404s on Next's prefetches | Every one was a button that did nothing. The navigation now hides anything unbuilt. |
+| The PDF read its fonts from disk through `__dirname` | Requesting a PDF from a production build | `__dirname` resolves into the build's chunk directory and the font files are not copied there, so **every invoice download failed with ENOENT**. It typechecked, it worked in development, and it would have shipped. The fonts are now inlined as base64, which also removes the filesystem dependency entirely. |
+| A partial edit wiped every field it did not mention | Phase 2 browser suite — a surname went missing on an unrelated screen | Collapsing an absent value to null made "absent" and "emptied" the same thing, so **changing a member's phone number silently erased their surname, email, address, emergency contact, occupation, notes and assigned trainer**. Thirteen fields. Invisible to the typechecker because every one of them is optional. |
+| A payment against an invoice left the membership unpaid | Invoice suite | `recordPayment` only updated the subscription when the caller named it — but reception settles an *invoice*, not a subscription. The membership went on reporting money as owed after it had been collected, so the gym would ring a member who had already paid. |
+| "Collected today" counted a UTC day | A test run that crossed midnight IST | The till figure rolled over at 05:30 rather than midnight, so a late shift's takings landed on the wrong date and the cash count disagreed with the screen. The gym's business day is now one concept used everywhere, including in the pages, which were passing UTC dates into the reports. |
+| A plan created through the API silently charged 0% GST | Rendering a PDF for a plan created over curl | `taxRateId` was optional and defaulted to nothing. GST applies to a gym membership in India, so the gym's default rate now applies when none is named; `null` means a deliberately tax-free plan. An under-collection nobody notices until the return is filed. |
+| Freezing a membership made its row vanish | Phase 2 browser suite | The default filter was "Active", so pausing a membership removed it from the list the receptionist was looking at mid-conversation. "Live" — active plus frozen — is now the default, because that is the question a gym actually asks. |
 | The member profile's Edit button went nowhere | Phase 2 browser suite | Same class of problem; the page was built rather than the button removed, since the service behind it was already written and tested. |
 
 ---
@@ -188,6 +202,13 @@ Recorded because each one says something about where the bugs actually are.
 ---
 
 ## Changelog
+
+**18 November 2026 — Phase 2: tax invoices, the subscription lifecycle on screen**
+The GST tax invoice as a PDF, the invoices screen, and freeze/extend/cancel
+on the subscriptions row. 341 checks passing: 196 tests, 81 HTTP checks and
+64 browser checks. Seven more bugs found and fixed, listed above — including
+a PDF that worked in development and would have failed every download in
+production, and a partial edit that silently erased thirteen fields.
 
 **17 November 2026 — Phase 2 engine, API and screens**
 Members, plans, the subscription lifecycle, attendance, payments, the

@@ -32,10 +32,10 @@ project's architecture document.
 | Members | Registration with duplicate detection, search, filters, profile, edit, archive |
 | Memberships | Plans, quoting, selling, renewal, freeze, extension, cancellation with refund |
 | Attendance | QR and search check-in, eligibility rules at the door, audited overrides, peak hours |
-| Money | Counter payments, GST invoices with gapless numbering, the Razorpay webhook |
+| Money | Counter payments, GST tax invoices as PDFs with gapless numbering, the Razorpay webhook |
 | Dashboard | Eight date ranges, six charts, and the three lists a gym actually works from |
-| Web application | Next.js 15 — marketing page, auth, and nine screens of the gym portal |
-| Tests | **290 passing**: 40 isolation, 34 auth, 30 account flows, 54 operations, 10 contracts, 74 HTTP checks, 48 browser checks |
+| Web application | Next.js 15 — marketing page, auth, and eleven screens of the gym portal |
+| Tests | **341 passing**: 40 isolation, 34 auth, 30 account flows, 56 operations, 24 invoices, 10 contracts, 81 HTTP checks, 64 browser checks |
 
 ---
 
@@ -88,9 +88,9 @@ pnpm dev                 # http://localhost:3000
 To run everything:
 
 ```bash
-pnpm vitest run                                   # 168 tests against a real database
-bash tests/e2e/http-smoke.sh                      # 74 checks against a running server
-node tests/e2e/phase2-browser.mjs                 # 48 checks in a real browser
+pnpm vitest run                                   # 196 tests against a real database
+bash tests/e2e/http-smoke.sh                      # 81 checks against a running server
+node tests/e2e/phase2-browser.mjs                 # 64 checks in a real browser
 ```
 
 The browser suite needs Playwright and a server on `http://127.0.0.1:3100`

@@ -26,7 +26,13 @@ export interface CreatePlanInput {
   durationValue: number;
   sessionCount?: number;
   price: string;
-  taxRateId?: string;
+  /**
+   * Omit it and the gym's default tax rate applies — in India that is the
+   * right default, because GST applies to a gym membership and a plan that
+   * quietly charges 0% is an under-collection nobody notices until filing.
+   * Pass null to mean a deliberately tax-free plan.
+   */
+  taxRateId?: string | null;
   priceIncludesTax?: boolean;
   joiningFee?: string;
   freezeAllowed?: boolean;
@@ -71,6 +77,15 @@ export async function createPlan(
       }
     }
 
+    // undefined → the gym's default rate. null → deliberately no tax.
+    const resolvedTaxRateId =
+      input.taxRateId === undefined
+        ? ((await tx.taxRate.findFirst({
+            where: { isDefault: true, isActive: true },
+            select: { id: true },
+          })) ?? null)?.id ?? null
+        : input.taxRateId;
+
     const plan = await tx.membershipPlan.create({
       data: {
         organizationId: ctx.organizationId,
@@ -81,7 +96,7 @@ export async function createPlan(
         durationValue: input.durationValue,
         sessionCount: input.sessionCount ?? null,
         price: input.price,
-        taxRateId: input.taxRateId || null,
+        taxRateId: resolvedTaxRateId,
         priceIncludesTax: input.priceIncludesTax ?? true,
         joiningFee: input.joiningFee ?? '0',
         freezeAllowed: input.freezeAllowed ?? false,

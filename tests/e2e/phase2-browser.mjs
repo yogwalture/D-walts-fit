@@ -136,6 +136,11 @@ try {
   await page.fill('#plan-name', 'Monthly');
   await page.fill('#plan-price', '1500');
   await page.fill('#plan-graceDays', '3');
+  // Freezing is off by default on a new plan, and the subscriptions screen
+  // only offers Freeze where the plan permits it — so turn it on here, which
+  // is also what a real gym offering a freeze would do.
+  await page.getByLabel('Members may freeze this membership').check();
+  await page.fill('#plan-freezeMaxDays', '15');
   await page.getByRole('button', { name: 'Create plan' }).click();
 
   await page.waitForFunction(
@@ -347,6 +352,101 @@ try {
     'and so is the address',
     (await page.getByText(/Chhatrapati Sambhajinagar/).count()) > 0,
   );
+
+  // ---------------------------------------------------------- invoices ---
+  section('Invoices');
+  await page.goto(`${BASE}/finance/invoices`, { waitUntil: 'domcontentloaded' });
+  check('the invoices page renders', (await page.getByRole('heading', { name: 'Invoices' }).count()) > 0);
+  check(
+    'the invoice raised by the sale is listed',
+    (await page.getByText(/INV\/\d{4}-\d{2}\/\d{5}/).count()) > 0,
+  );
+  check('it is marked paid', (await page.getByText('paid').count()) > 0);
+
+  // The PDF is the deliverable a member actually asks for. Fetched through
+  // the page so the session cookie and the route's auth both apply.
+  const pdf = await page.evaluate(async () => {
+    const list = await (await fetch('/api/v1/finance/invoices')).json();
+    const id = list.data?.[0]?.id;
+    if (!id) return { ok: false, reason: 'no invoice' };
+
+    const response = await fetch(`/api/v1/finance/invoices/${id}/pdf`);
+    const buffer = await response.arrayBuffer();
+    const head = new TextDecoder('latin1').decode(buffer.slice(0, 5));
+    return {
+      ok: response.ok,
+      status: response.status,
+      type: response.headers.get('content-type'),
+      disposition: response.headers.get('content-disposition'),
+      cache: response.headers.get('cache-control'),
+      bytes: buffer.byteLength,
+      head,
+    };
+  });
+
+  check('the PDF downloads', pdf.ok === true, `status ${pdf.status}`);
+  check('it is really a PDF', pdf.head === '%PDF-', String(pdf.head));
+  check('of a believable size', pdf.bytes > 3000, `${pdf.bytes} bytes`);
+  check('served as application/pdf', pdf.type === 'application/pdf', String(pdf.type));
+  check(
+    'named after the invoice, not "invoice.pdf"',
+    /INV-\d{4}-\d{2}-\d{5}\.pdf/.test(pdf.disposition ?? ''),
+    String(pdf.disposition),
+  );
+  check(
+    'and never held by a shared cache',
+    (pdf.cache ?? '').includes('no-store'),
+    String(pdf.cache),
+  );
+
+  // ----------------------------------------------------- subscriptions ---
+  section('Subscriptions');
+  await page.goto(`${BASE}/memberships/subscriptions`, { waitUntil: 'domcontentloaded' });
+  check(
+    'the subscriptions page renders',
+    (await page.getByRole('heading', { name: 'Subscriptions' }).count()) > 0,
+  );
+  check(
+    'the membership is listed under the member’s full name',
+    (await page.getByText(`${member.firstName} ${member.lastName}`).count()) > 0,
+  );
+
+  // Freeze, from the row, the way a receptionist would with the member there.
+  await page.getByRole('button', { name: 'Freeze' }).first().click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('days left on this plan'),
+    undefined,
+    { timeout: 10_000 },
+  );
+  check('the freeze panel says how much allowance is left', true);
+
+  const dates = page.locator('input[type="date"]');
+  const freezeFrom = new Date();
+  const freezeTo = new Date(Date.now() + 6 * 86400000);
+  await dates.nth(0).fill(freezeFrom.toISOString().slice(0, 10));
+  await dates.nth(1).fill(freezeTo.toISOString().slice(0, 10));
+  await page.getByRole('button', { name: 'Confirm' }).click();
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes('frozen'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('freezing works from the row', true);
+  check('and the days used are shown', (await page.getByText(/7\/\d+d frozen/).count()) > 0);
+  // The row must still be on screen: it was frozen, not ended, and the person
+  // who froze it is still talking to the member.
+  check(
+    'the row stays in view after being frozen',
+    (await page.getByText(`${member.firstName} ${member.lastName}`).count()) > 0,
+  );
+
+  // An extension with no reason must be refused by the form itself. Reload
+  // first: the row's action buttons are replaced by whichever panel is open.
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: 'Extend' }).first().click();
+  const confirmDisabled = await page.getByRole('button', { name: 'Confirm' }).isDisabled();
+  check('an extension cannot be confirmed without a reason', confirmDisabled);
 
   // ------------------------------------------------------------- the CSP ---
   section('Security headers');

@@ -945,3 +945,166 @@ export async function expireSubscriptions(
 
   return { expired: due.length };
 }
+
+// ------------------------------------------------------------- listing ---
+
+export interface SubscriptionRow {
+  id: string;
+  memberId: string;
+  memberName: string;
+  memberCode: string;
+  memberPhone: string;
+  planName: string;
+  status: string;
+  startDate: Date;
+  endDate: Date;
+  graceUntil: Date | null;
+  daysRemaining: number;
+  totalAmount: string;
+  paidAmount: string;
+  dueAmount: string;
+  freezeDaysUsed: number;
+  freezeDaysAllowed: number;
+  freezeAllowed: boolean;
+  transferAllowed: boolean;
+  sessionsTotal: number | null;
+  sessionsConsumed: number;
+}
+
+/**
+ * The memberships themselves, rather than the members holding them.
+ *
+ * A member list answers "who is in this gym"; this answers "which
+ * memberships need something doing to them" — expiring, frozen, unpaid. The
+ * two are different questions and a gym asks both.
+ */
+export async function listSubscriptions(
+  ctx: SubscriptionContext,
+  permissions: ResolvedPermissions,
+  options: {
+    page?: number;
+    pageSize?: number;
+    status?: string;
+    planId?: string;
+    branchId?: string;
+    memberId?: string;
+    expiringWithinDays?: number;
+    search?: string;
+  } = {},
+): Promise<{ rows: SubscriptionRow[]; total: number }> {
+  requirePermission(permissions, 'memberships.subscription.read');
+
+  const page = Math.max(1, options.page ?? 1);
+  const pageSize = Math.min(options.pageSize ?? 25, 100);
+  const todayLocal = today();
+
+  return withTenant(ctx, async (tx) => {
+    const where: Record<string, unknown> = {
+      deletedAt: null,
+      // "live" means a membership the gym still owes service on — active or
+      // paused. Freezing one should not make it vanish from the list the
+      // receptionist is looking at while the member stands there.
+      ...(options.status === 'live'
+        ? { status: { in: ['ACTIVE', 'FROZEN'] } }
+        : options.status && options.status !== 'all'
+          ? { status: options.status }
+          : {}),
+      ...(options.planId ? { planId: options.planId } : {}),
+      ...(options.branchId ? { branchId: options.branchId } : {}),
+      ...(options.memberId ? { memberId: options.memberId } : {}),
+      ...(options.expiringWithinDays
+        ? {
+            status: 'ACTIVE',
+            endDate: { gte: todayLocal, lte: addDays(todayLocal, options.expiringWithinDays) },
+          }
+        : {}),
+      ...(options.search
+        ? {
+            member: {
+              OR: [
+                { firstName: { contains: options.search, mode: 'insensitive' } },
+                { lastName: { contains: options.search, mode: 'insensitive' } },
+                { memberCode: { contains: options.search, mode: 'insensitive' } },
+                { phone: { contains: options.search } },
+              ],
+            },
+          }
+        : {}),
+    };
+
+    const [rows, total] = await Promise.all([
+      tx.subscription.findMany({
+        where,
+        orderBy: [{ endDate: 'asc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: {
+          id: true,
+          status: true,
+          startDate: true,
+          endDate: true,
+          graceUntil: true,
+          totalAmount: true,
+          paidAmount: true,
+          frozenDaysUsed: true,
+          sessionsTotal: true,
+          sessionsConsumed: true,
+          member: {
+            select: {
+              id: true,
+              memberCode: true,
+              firstName: true,
+              lastName: true,
+              phone: true,
+            },
+          },
+          plan: {
+            select: {
+              name: true,
+              freezeAllowed: true,
+              freezeMaxDays: true,
+              transferAllowed: true,
+            },
+          },
+        },
+      }),
+      tx.subscription.count({ where }),
+    ]);
+
+    return {
+      total,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rows: rows.map((row: any) => {
+        const paid = toPaise(row.paidAmount.toString());
+        const owed = toPaise(row.totalAmount.toString());
+
+        return {
+          id: row.id,
+          memberId: row.member.id,
+          memberName: [row.member.firstName, row.member.lastName].filter(Boolean).join(' '),
+          memberCode: row.member.memberCode,
+          memberPhone: row.member.phone,
+          planName: row.plan.name,
+          status: row.status,
+          startDate: row.startDate,
+          endDate: row.endDate,
+          graceUntil: row.graceUntil,
+          daysRemaining: Math.round(
+            (startOfDay(row.endDate).getTime() - todayLocal.getTime()) / 86_400_000,
+          ),
+          // Two decimals always: Prisma's Decimal renders 14000.00 as
+          // "14000", and a money column should not change shape with its value.
+          totalAmount: (owed / 100).toFixed(2),
+          paidAmount: (paid / 100).toFixed(2),
+          dueAmount: ((owed - paid) / 100).toFixed(2),
+          freezeDaysUsed: row.frozenDaysUsed,
+          freezeDaysAllowed: row.plan.freezeMaxDays,
+          freezeAllowed: row.plan.freezeAllowed,
+          transferAllowed: row.plan.transferAllowed,
+          sessionsTotal: row.sessionsTotal,
+          sessionsConsumed: row.sessionsConsumed,
+        };
+      }),
+    };
+  });
+}

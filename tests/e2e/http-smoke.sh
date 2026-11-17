@@ -243,7 +243,9 @@ for path in \
   "/api/v1/finance/payments" \
   "/api/v1/dashboard" \
   "/api/v1/dashboard/charts" \
-  "/api/v1/dashboard/actions"
+  "/api/v1/dashboard/actions" \
+  "/api/v1/finance/invoices" \
+  "/api/v1/memberships/subscriptions"
 do
   code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE$path")
   check "$path is closed to a stranger" "401" "$code"
@@ -316,6 +318,52 @@ has "an override without a reason is refused" "$body" "VALIDATION_FAILED"
 # A list endpoint cannot be talked into returning the whole table.
 body=$(curl -s -b "$JAR2" "$BASE/api/v1/members?pageSize=100000")
 has "an oversized page size is refused" "$body" "VALIDATION_FAILED"
+
+printf '\ninvoice PDFs\n'
+
+# Raise a real invoice rather than hoping one exists: a skipped check reads
+# like a pass in the summary and proves nothing.
+json_field() { python3 -c "import sys,json;print((json.load(sys.stdin).get('data') or {}).get('$1',''))" 2>/dev/null; }
+
+PLAN_ID=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/memberships/plans" \
+  -H 'content-type: application/json' -H "origin: $BASE" \
+  -d '{"name":"Smoke Monthly","durationUnit":"MONTH","durationValue":1,"price":"1500"}' | json_field id)
+
+MEMBER_ID=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/members" \
+  -H 'content-type: application/json' -H "origin: $BASE" \
+  -d '{"firstName":"Smoke","lastName":"Tester","phone":"9820099001"}' | json_field id)
+
+INV_ID=""
+if [ -n "$PLAN_ID" ] && [ -n "$MEMBER_ID" ]; then
+  INV_ID=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/memberships/sell" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d "{\"memberId\":\"$MEMBER_ID\",\"planId\":\"$PLAN_ID\",\"payment\":{\"amount\":\"1500.00\",\"method\":\"CASH\"}}" \
+    | json_field invoiceId)
+fi
+
+check "selling a membership raised an invoice" "true" "$([ -n "$INV_ID" ] && echo true || echo false)"
+
+if [ -n "$INV_ID" ]; then
+  headers=$(curl -s -b "$JAR2" -D- -o /tmp/smoke.pdf "$BASE/api/v1/finance/invoices/$INV_ID/pdf" | tr 'A-Z' 'a-z')
+  case "$headers" in
+    *application/pdf*) ok "the invoice PDF is served as a PDF";;
+    *) bad "the invoice PDF is served as a PDF" "application/pdf" "see headers";;
+  esac
+  case "$headers" in
+    *no-store*) ok "and is never held by a shared cache";;
+    *) bad "and is never held by a shared cache" "no-store" "see headers";;
+  esac
+
+  magic=$(head -c 5 /tmp/smoke.pdf)
+  check "the bytes really are a PDF" "%PDF-" "$magic"
+
+  # Signed out, the same document must not be reachable.
+  code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/finance/invoices/$INV_ID/pdf")
+  check "a stranger cannot fetch someone's tax invoice" "401" "$code"
+  rm -f /tmp/smoke.pdf
+else
+  printf '  - invoice PDF checks skipped (no invoice in this account)\n'
+fi
 
 rm -f "$JAR2"
 

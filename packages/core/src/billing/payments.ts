@@ -7,7 +7,7 @@ import {
   type ResolvedPermissions,
 } from '../rbac/engine';
 import { allocateReceiptNumber } from '../shared/sequences';
-import { today } from '../shared/dates';
+import { businessDayRange } from '../shared/dates';
 import { toPaise, toRupees } from '../shared/money';
 
 /**
@@ -68,7 +68,20 @@ export async function recordPayment(
     if (input.invoiceId) {
       invoice = await tx.invoice.findFirst({
         where: { id: input.invoiceId },
-        select: { id: true, total: true, amountPaid: true, amountDue: true, status: true },
+        select: {
+          id: true,
+          total: true,
+          amountPaid: true,
+          amountDue: true,
+          status: true,
+          // The membership this invoice was raised for, so settling the
+          // invoice also settles the subscription. See below.
+          lines: {
+            where: { subscriptionId: { not: null } },
+            select: { subscriptionId: true },
+            take: 1,
+          },
+        },
       });
       if (!invoice) throw new AppError('NOT_FOUND', 'Invoice not found.');
       if (invoice.status === 'CANCELLED') {
@@ -88,6 +101,14 @@ export async function recordPayment(
       }
     }
 
+    // Settling an invoice settles the membership it was raised for, even when
+    // the caller did not name the subscription — which is the normal case,
+    // because the person at the desk is paying off an invoice, not a
+    // subscription. Without this the subscriptions screen goes on reporting
+    // money as owed after it has been collected, and a gym rings a member who
+    // already paid.
+    const subscriptionId = input.subscriptionId ?? invoice?.lines?.[0]?.subscriptionId ?? null;
+
     const receipt = await allocateReceiptNumber(tx, ctx.organizationId);
 
     const payment = await tx.payment.create({
@@ -96,7 +117,7 @@ export async function recordPayment(
         branchId: input.branchId ?? member.branchId ?? null,
         memberId: member.id,
         invoiceId: invoice?.id ?? null,
-        subscriptionId: input.subscriptionId ?? null,
+        subscriptionId,
         receiptCode: receipt.code,
         amount: toRupees(amountPaise),
         method: input.method,
@@ -126,14 +147,14 @@ export async function recordPayment(
       });
     }
 
-    if (input.subscriptionId) {
+    if (subscriptionId) {
       const subscription = await tx.subscription.findFirst({
-        where: { id: input.subscriptionId },
+        where: { id: subscriptionId },
         select: { paidAmount: true },
       });
       if (subscription) {
         await tx.subscription.update({
-          where: { id: input.subscriptionId },
+          where: { id: subscriptionId },
           data: {
             paidAmount: toRupees(toPaise(subscription.paidAmount.toString()) + amountPaise),
           },
@@ -413,15 +434,34 @@ export async function dailyCollection(
 ): Promise<{ date: string; byMethod: Array<{ method: string; amount: string; count: number }>; total: string }> {
   requirePermission(permissions, 'finance.payment.read');
 
-  const date = options.date ? new Date(`${options.date}T00:00:00Z`) : today();
-  const end = new Date(date.getTime() + 86_400_000);
-
   return withTenant(ctx, async (tx) => {
+    // The gym's day, not the server's. Hostinger runs UTC, and a UTC day puts
+    // an Indian gym's "today" from 05:30 to 05:30 — so a late shift's takings
+    // land on the wrong date and the figure the manager counts cash against
+    // is not the figure on screen. The timezone comes from the branch being
+    // counted, because a chain can span zones.
+    const branch = options.branchId
+      ? await tx.branch.findFirst({
+          where: { id: options.branchId },
+          select: { timezone: true },
+        })
+      : null;
+    const settings = branch
+      ? null
+      : await tx.orgSetting.findFirst({ select: { timezone: true } });
+
+    const timezone = branch?.timezone ?? settings?.timezone ?? 'Asia/Kolkata';
+
+    const window = options.date
+      ? businessDayRange(timezone, new Date(`${options.date}T12:00:00Z`))
+      : businessDayRange(timezone);
+    const { date, start, end } = window;
+
     const grouped = await tx.payment.groupBy({
       by: ['method'],
       where: {
         status: 'CAPTURED',
-        receivedAt: { gte: date, lt: end },
+        receivedAt: { gte: start, lt: end },
         ...(options.branchId ? { branchId: options.branchId } : {}),
       },
       _sum: { amount: true },

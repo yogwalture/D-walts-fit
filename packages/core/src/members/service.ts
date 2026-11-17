@@ -492,24 +492,43 @@ export async function updateMember(
       if (value !== undefined) data[key] = value;
     };
 
+    /**
+     * A field the caller did not send is left alone; a field sent empty is
+     * cleared.
+     *
+     * The distinction is the whole point. `input.email || null` collapses
+     * "absent" and "emptied" into the same null, and `assign` then writes it
+     * — so a PATCH that changed only a phone number silently erased the
+     * member's surname, email, address, emergency contact and trainer. That
+     * shipped past the typechecker because every one of these is optional,
+     * and was caught by a surname going missing on an unrelated screen.
+     */
+    const clearable = (value: string | null | undefined): string | null | undefined => {
+      if (value === undefined) return undefined;
+      const trimmed = typeof value === 'string' ? value.trim() : value;
+      return trimmed ? trimmed : null;
+    };
+
     assign('firstName', input.firstName?.trim());
-    assign('lastName', input.lastName?.trim() || null);
+    assign('lastName', clearable(input.lastName));
     assign('phone', input.phone);
-    assign('altPhone', input.altPhone || null);
-    assign('email', input.email || null);
+    assign('altPhone', clearable(input.altPhone));
+    assign('email', clearable(input.email));
     assign('gender', input.gender);
     assign('branchId', input.branchId);
-    assign('addressLine1', input.addressLine1 || null);
-    assign('city', input.city || null);
-    assign('state', input.state || null);
-    assign('postalCode', input.postalCode || null);
-    assign('emergencyContactName', input.emergencyContactName || null);
-    assign('emergencyContactPhone', input.emergencyContactPhone || null);
+    assign('addressLine1', clearable(input.addressLine1));
+    assign('addressLine2', clearable(input.addressLine2));
+    assign('city', clearable(input.city));
+    assign('state', clearable(input.state));
+    assign('postalCode', clearable(input.postalCode));
+    assign('emergencyContactName', clearable(input.emergencyContactName));
+    assign('emergencyContactPhone', clearable(input.emergencyContactPhone));
+    assign('emergencyContactRelation', clearable(input.emergencyContactRelation));
     assign('fitnessGoals', input.fitnessGoals);
-    assign('occupation', input.occupation || null);
-    assign('bloodGroup', input.bloodGroup || null);
-    assign('notes', input.notes || null);
-    assign('assignedTrainerOrgUserId', input.assignedTrainerOrgUserId || null);
+    assign('occupation', clearable(input.occupation));
+    assign('bloodGroup', clearable(input.bloodGroup));
+    assign('notes', clearable(input.notes));
+    assign('assignedTrainerOrgUserId', clearable(input.assignedTrainerOrgUserId));
     if (input.dateOfBirth !== undefined) {
       data.dateOfBirth = input.dateOfBirth ? startOfDay(input.dateOfBirth) : null;
     }

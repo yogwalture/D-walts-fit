@@ -1,6 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getDashboardSummary, getCharts, getActionLists, peakHours, type DateRangeKey } from '@gym/core';
+import {
+  businessDayIso,
+  getDashboardSummary,
+  getCharts,
+  getActionLists,
+  peakHours,
+  type DateRangeKey,
+} from '@gym/core';
 import { requireActor, holds } from '@/lib/current-session';
 import {
   Card,
@@ -59,7 +66,7 @@ export default async function DashboardPage({
     holds(session, 'attendance.report.read')
       ? peakHours(ctx, actor.permissions, {
           fromDate: summaryWindowStart(),
-          toDate: new Date().toISOString().slice(0, 10),
+          toDate: businessDayIso(),
         })
       : Promise.resolve([]),
   ]);
@@ -269,9 +276,9 @@ function CallList({
   );
 }
 
-/** 30 days back, for the peak-hours window. */
+/** 30 days back, in the gym's own day rather than the server's. */
 function summaryWindowStart(): string {
-  return new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+  return businessDayIso('Asia/Kolkata', new Date(Date.now() - 30 * 86_400_000));
 }
 
 function greeting(): string {

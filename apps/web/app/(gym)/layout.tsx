@@ -64,7 +64,7 @@ const NAVIGATION: NavSection[] = [
         href: '/memberships/subscriptions',
         label: 'Subscriptions',
         permission: 'memberships.subscription.read',
-        built: false,
+        built: true,
       },
     ],
   },
@@ -81,7 +81,7 @@ const NAVIGATION: NavSection[] = [
         href: '/finance/invoices',
         label: 'Invoices',
         permission: 'finance.invoice.read',
-        built: false,
+        built: true,
       },
       {
         href: '/finance/expenses',

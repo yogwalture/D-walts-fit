@@ -117,3 +117,71 @@ export function businessDay(timezone = 'Asia/Kolkata', at: Date = new Date()): D
   }).format(at);
   return startOfDay(parts);
 }
+
+/**
+ * The real instants a gym's business day begins and ends.
+ *
+ * `businessDay` answers "what date is it at the gym" as a date-only value.
+ * This answers "which moments count as that date" — which is what a query
+ * over a timestamp column needs.
+ *
+ * The two are not interchangeable, and conflating them is a live bug: a UTC
+ * day boundary puts an Indian gym's "today" from 05:30 to 05:30, so the
+ * takings counted at the end of a late shift belong to the wrong day and the
+ * date printed on the report is yesterday's.
+ */
+export function businessDayRange(
+  timezone = 'Asia/Kolkata',
+  at: Date = new Date(),
+): { start: Date; end: Date; date: Date } {
+  const date = businessDay(timezone, at);
+
+  // The offset the zone is at on that date, worked out by asking what that
+  // wall-clock moment is in UTC. Doing it per date rather than with a fixed
+  // number keeps it right across a daylight-saving change in zones that have
+  // one; India does not, but a gym abroad on this platform might.
+  const asUtc = new Date(date.getTime());
+  const offsetMinutes = zoneOffsetMinutes(timezone, asUtc);
+
+  const start = new Date(date.getTime() - offsetMinutes * 60_000);
+  return { start, end: new Date(start.getTime() + MS_PER_DAY), date };
+}
+
+/** Minutes the zone is ahead of UTC at that instant. */
+function zoneOffsetMinutes(timezone: string, at: Date): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(at);
+
+  const read = (type: string): number => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  const asIfUtc = Date.UTC(
+    read('year'),
+    read('month') - 1,
+    read('day'),
+    read('hour') % 24,
+    read('minute'),
+    read('second'),
+  );
+
+  return Math.round((asIfUtc - at.getTime()) / 60_000);
+}
+
+/**
+ * The gym's current business day as `YYYY-MM-DD`.
+ *
+ * What every caller that needs to pass a date to a service should use.
+ * `new Date().toISOString().slice(0, 10)` looks equivalent and is not: it is
+ * the server's UTC date, which for the five and a half hours after midnight
+ * in India is yesterday — long enough to drop the whole early-morning rush
+ * out of a report.
+ */
+export function businessDayIso(timezone = 'Asia/Kolkata', at: Date = new Date()): string {
+  return businessDay(timezone, at).toISOString().slice(0, 10);
+}

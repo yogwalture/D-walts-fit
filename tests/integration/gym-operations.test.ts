@@ -49,6 +49,8 @@ import {
   addMonths,
   addDays,
   today,
+  businessDayRange,
+  businessDayIso,
   financialYear,
   AppError,
 } from '@gym/core';
@@ -225,6 +227,29 @@ describe('dates', () => {
     expect(inclusiveDays(new Date('2026-11-01'), new Date('2026-11-01'))).toBe(1);
   });
 
+  it('starts a gym’s day at local midnight, not UTC midnight', () => {
+    // 18:31 UTC on 17 November is 00:01 on 18 November in India. A UTC day
+    // boundary would put the gym's "today" from 05:30 to 05:30 — so the
+    // takings counted at the end of a late shift land on the wrong date and
+    // the figure on screen is not the one the manager counts cash against.
+    const lateEvening = new Date('2026-11-17T18:31:00Z');
+
+    const india = businessDayRange('Asia/Kolkata', lateEvening);
+    expect(iso(india.date)).toBe('2026-11-18');
+    expect(india.start.toISOString()).toBe('2026-11-17T18:30:00.000Z');
+    expect(india.end.toISOString()).toBe('2026-11-18T18:30:00.000Z');
+    expect(india.start <= lateEvening && lateEvening < india.end).toBe(true);
+
+    // Just before the boundary it is still the previous day.
+    const justBefore = new Date('2026-11-17T18:29:00Z');
+    expect(iso(businessDayRange('Asia/Kolkata', justBefore).date)).toBe('2026-11-17');
+
+    // And a gym in another zone gets its own day, not India's.
+    const dubai = businessDayRange('Asia/Dubai', lateEvening);
+    expect(iso(dubai.date)).toBe('2026-11-17');
+    expect(dubai.start.toISOString()).toBe('2026-11-16T20:00:00.000Z');
+  });
+
   it('uses the Indian financial year, April to March', () => {
     expect(financialYear(new Date('2026-11-17'))).toBe('2026-27');
     expect(financialYear(new Date('2026-03-31'))).toBe('2025-26');
@@ -319,6 +344,59 @@ describe('members', () => {
     expect(asReception.canSeeMedical).toBe(false);
     // Not fetched-then-hidden: the field is absent from the result entirely.
     expect('medicalDeclaration' in asReception).toBe(false);
+  });
+
+  it('a partial edit leaves every field it did not mention alone', async () => {
+    // The bug this guards: `input.email || null` turned "absent" into
+    // "cleared", so changing one field silently wiped a dozen others — a
+    // member's surname, address, emergency contact and trainer all gone
+    // because reception corrected a phone number.
+    const member = await createMember(ctx, owner, {
+      firstName: 'Partial',
+      lastName: 'Edit',
+      phone: '9811100011',
+      email: 'partial@example.com',
+      addressLine1: '12 MG Road',
+      city: 'Pune',
+      state: 'Maharashtra',
+      postalCode: '411001',
+      emergencyContactName: 'Sunita',
+      emergencyContactPhone: '9823012345',
+      occupation: 'Teacher',
+      notes: 'Prefers morning sessions',
+    } as never);
+
+    await updateMember(ctx, owner, member.id, { phone: '9811100022' });
+
+    const after = await db.member.findUniqueOrThrow({ where: { id: member.id } });
+    expect(after.phone).toBe('9811100022');
+    expect(after.lastName, 'surname must survive a phone change').toBe('Edit');
+    expect(after.email).toBe('partial@example.com');
+    expect(after.addressLine1).toBe('12 MG Road');
+    expect(after.city).toBe('Pune');
+    expect(after.state).toBe('Maharashtra');
+    expect(after.postalCode).toBe('411001');
+    expect(after.emergencyContactName).toBe('Sunita');
+    expect(after.emergencyContactPhone).toBe('9823012345');
+    expect(after.occupation).toBe('Teacher');
+    expect(after.notes).toBe('Prefers morning sessions');
+  });
+
+  it('still clears a field that is sent empty on purpose', async () => {
+    const member = await createMember(ctx, owner, {
+      firstName: 'Clearable',
+      lastName: 'Field',
+      phone: '9811100033',
+      email: 'clearable@example.com',
+      occupation: 'Engineer',
+    } as never);
+
+    await updateMember(ctx, owner, member.id, { email: '', occupation: '   ' });
+
+    const after = await db.member.findUniqueOrThrow({ where: { id: member.id } });
+    expect(after.email, 'an empty string means clear it').toBeNull();
+    expect(after.occupation).toBeNull();
+    expect(after.lastName, 'and nothing else moves').toBe('Field');
   });
 
   it('archives rather than deletes, so the financial history survives', async () => {
@@ -844,13 +922,20 @@ describe('attendance', () => {
   });
 
   it('lists today and reports peak hours', async () => {
+    // Check someone in first rather than relying on earlier tests: a suite
+    // that straddles the gym's midnight would otherwise look for today's
+    // visits and find only yesterday's.
+    const memberId = await activeMember('Listed');
+    await checkIn(ctx, owner, { memberId });
+
     const list = await todaysAttendance(ctx, owner);
     expect(list.length).toBeGreaterThan(0);
     expect(list[0]).toHaveProperty('name');
 
+    // Business days, not UTC days — the same thing the pages pass.
     const hours = await peakHours(ctx, owner, {
-      fromDate: iso(addDays(today(), -7)),
-      toDate: iso(today()),
+      fromDate: businessDayIso('Asia/Kolkata', addDays(new Date(), -7)),
+      toDate: businessDayIso(),
     });
     expect(hours).toHaveLength(24);
     expect(hours.reduce((sum, h) => sum + h.visits, 0)).toBeGreaterThan(0);

@@ -48,7 +48,13 @@ export const createPlanInput = z.object({
   /** Required when the unit is SESSION: the package is consumed, not timed. */
   sessionCount: z.coerce.number().int().min(1).max(1000).optional(),
   price: money,
-  taxRateId: uuid.optional(),
+  /**
+   * Omitted, the gym's default tax rate applies — GST applies to a gym
+   * membership in India, and a plan that quietly charges 0% is an
+   * under-collection nobody notices until filing. Send null for a plan that
+   * is deliberately tax-free.
+   */
+  taxRateId: uuid.nullable().optional(),
   priceIncludesTax: z.boolean().default(true),
   joiningFee: money.optional(),
   graceDays: z.coerce.number().int().min(0).max(90).default(0),
@@ -142,7 +148,8 @@ export const transferInput = z.object({
 });
 
 export const subscriptionListQuery = pageQuery.extend({
-  status: z.enum(['ACTIVE', 'FROZEN', 'EXPIRED', 'CANCELLED', 'all']).default('all'),
+  /** `live` is active plus frozen: everything the gym still owes service on. */
+  status: z.enum(['live', 'ACTIVE', 'FROZEN', 'EXPIRED', 'CANCELLED', 'all']).default('live'),
   planId: uuid.optional(),
   branchId: uuid.optional(),
   memberId: uuid.optional(),

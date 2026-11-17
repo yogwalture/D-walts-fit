@@ -9,11 +9,16 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@types/pdfkit": "^0.17.7",
     "typescript": "^5.7.2"
   },
   "exports": {
     ".": "./src/index.ts",
     "./email": "./src/email/index.ts",
-    "./razorpay": "./src/razorpay/index.ts"
+    "./razorpay": "./src/razorpay/index.ts",
+    "./pdf": "./src/pdf/index.ts"
+  },
+  "dependencies": {
+    "pdfkit": "^0.20.2"
   }
 }
