@@ -1,0 +1,478 @@
+// ===========================================================================
+//  STAFF, FITNESS AND CLASSES
+//
+//  Salary, bank details and commission are in staff_profiles and are
+//  reachable only with staff.salary.read — Owner and Accountant only.
+// ===========================================================================
+
+model StaffProfile {
+  id             String  @id @default(uuid(7)) @db.Uuid
+  organizationId String  @db.Uuid
+  orgUserId      String  @unique @db.Uuid
+
+  employeeCode String?
+  designation  String?
+  department   String?
+  joiningDate  DateTime? @db.Date
+  exitDate     DateTime? @db.Date
+
+  specialisations String[] @default([])
+  certifications  String[] @default([])
+  bio             String?
+
+  // --- sensitive: permission-gated, never returned by default selects ---
+  salaryAmount     Decimal? @db.Decimal(12, 2)
+  salaryCycle      String?
+  commissionRule   Json?    @db.JsonB
+  bankAccountMasked String?
+  bankIfsc         String?
+  panMasked        String?
+  // ----------------------------------------------------------------------
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  orgUser      OrgUser      @relation(fields: [orgUserId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, employeeCode])
+  @@index([organizationId])
+  @@map("staff_profiles")
+}
+
+model StaffAttendance {
+  id             String                @id @default(uuid(7)) @db.Uuid
+  organizationId String                @db.Uuid
+  orgUserId      String                @db.Uuid
+  branchId       String?               @db.Uuid
+  attendanceDate DateTime              @db.Date
+  status         StaffAttendanceStatus @default(PRESENT)
+  checkedInAt    DateTime?             @db.Timestamptz(3)
+  checkedOutAt   DateTime?             @db.Timestamptz(3)
+  notes          String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  orgUser      OrgUser      @relation(fields: [orgUserId], references: [id], onDelete: Cascade)
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@unique([orgUserId, attendanceDate])
+  @@index([organizationId, attendanceDate])
+  @@map("staff_attendance")
+}
+
+model StaffShift {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  organizationId String    @db.Uuid
+  orgUserId      String    @db.Uuid
+  branchId       String?   @db.Uuid
+  /// 0 = Sunday. Null when the shift is a one-off on shiftDate.
+  weekday        Int?
+  shiftDate      DateTime? @db.Date
+  startTime      String
+  endTime        String
+  notes          String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  orgUser      OrgUser      @relation(fields: [orgUserId], references: [id], onDelete: Cascade)
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, orgUserId])
+  @@map("staff_shifts")
+}
+
+model StaffLeave {
+  id             String           @id @default(uuid(7)) @db.Uuid
+  organizationId String           @db.Uuid
+  orgUserId      String           @db.Uuid
+  leaveType      String
+  fromDate       DateTime         @db.Date
+  toDate         DateTime         @db.Date
+  days           Decimal          @db.Decimal(4, 1)
+  reason         String?
+  status         StaffLeaveStatus @default(REQUESTED)
+  decidedByUserId String?         @db.Uuid
+  decidedAt      DateTime?        @db.Timestamptz(3)
+  decisionNote   String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  orgUser      OrgUser      @relation(fields: [orgUserId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@index([organizationId, orgUserId, fromDate])
+  @@map("staff_leaves")
+}
+
+model PayrollRun {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  organizationId String        @db.Uuid
+  periodMonth    Int
+  periodYear     Int
+  status         PayrollStatus @default(DRAFT)
+  grossTotal     Decimal       @default(0) @db.Decimal(12, 2)
+  deductionTotal Decimal       @default(0) @db.Decimal(12, 2)
+  netTotal       Decimal       @default(0) @db.Decimal(12, 2)
+  notes          String?
+
+  approvedAt       DateTime? @db.Timestamptz(3)
+  approvedByUserId String?   @db.Uuid
+  paidAt           DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  items        PayrollItem[]
+
+  @@unique([organizationId, periodYear, periodMonth])
+  @@map("payroll_runs")
+}
+
+model PayrollItem {
+  id             String  @id @default(uuid(7)) @db.Uuid
+  organizationId String  @db.Uuid
+  payrollRunId   String  @db.Uuid
+  orgUserId      String  @db.Uuid
+
+  baseSalary     Decimal @default(0) @db.Decimal(12, 2)
+  commission     Decimal @default(0) @db.Decimal(12, 2)
+  bonus          Decimal @default(0) @db.Decimal(12, 2)
+  deductions     Decimal @default(0) @db.Decimal(12, 2)
+  netPayable     Decimal @default(0) @db.Decimal(12, 2)
+  daysPresent    Decimal @default(0) @db.Decimal(4, 1)
+  notes          String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  payrollRun   PayrollRun   @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  orgUser      OrgUser      @relation(fields: [orgUserId], references: [id], onDelete: Cascade)
+
+  @@unique([payrollRunId, orgUserId])
+  @@index([organizationId])
+  @@map("payroll_items")
+}
+
+model TrainerAssignment {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  organizationId String    @db.Uuid
+  orgUserId      String    @db.Uuid
+  memberId       String    @db.Uuid
+  fromDate       DateTime  @db.Date
+  toDate         DateTime? @db.Date
+  isPrimary      Boolean   @default(true)
+  notes          String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  orgUser      OrgUser      @relation(fields: [orgUserId], references: [id], onDelete: Cascade)
+  member       Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, orgUserId])
+  @@index([organizationId, memberId])
+  @@map("trainer_assignments")
+}
+
+// ------------------------------------------------------------- fitness ---
+
+/// organizationId null = seeded global library shared by every gym.
+/// A gym may add its own exercises, which stay private to it.
+model Exercise {
+  id             String             @id @default(uuid(7)) @db.Uuid
+  organizationId String?            @db.Uuid
+  name           String
+  slug           String?
+  muscleGroup    String
+  secondaryMuscles String[]         @default([])
+  equipment      String?
+  difficulty     ExerciseDifficulty @default(BEGINNER)
+  category       String?
+  instructions   String?
+  cautions       String?
+  videoId        String?            @db.Uuid
+  externalVideoUrl String?
+  thumbnailFileKey String?
+  isActive       Boolean            @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  createdByUserId String? @db.Uuid
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  video        Video?        @relation(fields: [videoId], references: [id], onDelete: SetNull)
+
+  planItems WorkoutPlanItem[]
+  logs      WorkoutLog[]
+
+  @@index([organizationId, muscleGroup])
+  @@index([organizationId, isActive])
+  @@map("exercises")
+}
+
+model WorkoutPlan {
+  id             String  @id @default(uuid(7)) @db.Uuid
+  organizationId String  @db.Uuid
+  name           String
+  description    String?
+  goal           String?
+  difficulty     ExerciseDifficulty @default(BEGINNER)
+  durationWeeks  Int     @default(4)
+  daysPerWeek    Int     @default(3)
+  isTemplate     Boolean @default(false)
+  isActive       Boolean @default(true)
+
+  createdByOrgUserId String? @db.Uuid
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    OrgUser?     @relation(fields: [createdByOrgUserId], references: [id], onDelete: SetNull)
+
+  days        WorkoutPlanDay[]
+  assignments MemberWorkoutAssignment[]
+
+  @@index([organizationId, isTemplate, isActive])
+  @@map("workout_plans")
+}
+
+model WorkoutPlanDay {
+  id             String  @id @default(uuid(7)) @db.Uuid
+  organizationId String  @db.Uuid
+  workoutPlanId  String  @db.Uuid
+  dayIndex       Int
+  label          String
+  focus          String?
+  isRestDay      Boolean @default(false)
+  notes          String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workoutPlan  WorkoutPlan  @relation(fields: [workoutPlanId], references: [id], onDelete: Cascade)
+
+  items WorkoutPlanItem[]
+
+  @@unique([workoutPlanId, dayIndex])
+  @@index([organizationId])
+  @@map("workout_plan_days")
+}
+
+model WorkoutPlanItem {
+  id             String  @id @default(uuid(7)) @db.Uuid
+  organizationId String  @db.Uuid
+  workoutPlanDayId String @db.Uuid
+  exerciseId     String  @db.Uuid
+
+  displayOrder   Int     @default(0)
+  sets           Int?
+  reps           String?
+  weightKg       Decimal? @db.Decimal(6, 2)
+  restSeconds    Int?
+  durationSeconds Int?
+  tempo          String?
+  trainerNotes   String?
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workoutPlanDay WorkoutPlanDay @relation(fields: [workoutPlanDayId], references: [id], onDelete: Cascade)
+  exercise       Exercise       @relation(fields: [exerciseId], references: [id])
+
+  logs WorkoutLog[]
+
+  @@index([organizationId, workoutPlanDayId])
+  @@map("workout_plan_items")
+}
+
+model MemberWorkoutAssignment {
+  id             String                  @id @default(uuid(7)) @db.Uuid
+  organizationId String                  @db.Uuid
+  memberId       String                  @db.Uuid
+  workoutPlanId  String                  @db.Uuid
+  assignedByOrgUserId String?            @db.Uuid
+
+  startDate DateTime                     @db.Date
+  endDate   DateTime?                    @db.Date
+  status    WorkoutAssignmentStatus      @default(ACTIVE)
+  notes     String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  member       Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  workoutPlan  WorkoutPlan  @relation(fields: [workoutPlanId], references: [id])
+  assignedBy   OrgUser?     @relation(fields: [assignedByOrgUserId], references: [id], onDelete: SetNull)
+
+  logs WorkoutLog[]
+
+  @@index([organizationId, memberId, status])
+  @@map("member_workout_assignments")
+}
+
+model WorkoutLog {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @db.Uuid
+  memberId       String   @db.Uuid
+  assignmentId   String?  @db.Uuid
+  planItemId     String?  @db.Uuid
+  exerciseId     String?  @db.Uuid
+
+  performedOn    DateTime @db.Date
+  setsCompleted  Int?
+  repsCompleted  String?
+  weightKg       Decimal? @db.Decimal(6, 2)
+  durationSeconds Int?
+  perceivedEffort Int?
+  completed      Boolean  @default(true)
+  memberNotes    String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  member       Member                   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  assignment   MemberWorkoutAssignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  planItem     WorkoutPlanItem?         @relation(fields: [planItemId], references: [id], onDelete: SetNull)
+  exercise     Exercise?                @relation(fields: [exerciseId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, memberId, performedOn])
+  @@map("workout_logs")
+}
+
+/// Body measurements. Health data: consent-gated and permission-gated.
+/// BMI is stored as an informational metric, never as a diagnosis.
+model FitnessAssessment {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @db.Uuid
+  memberId       String   @db.Uuid
+  assessedByOrgUserId String? @db.Uuid
+
+  assessedOn   DateTime @db.Date
+  weightKg     Decimal? @db.Decimal(6, 2)
+  heightCm     Decimal? @db.Decimal(5, 1)
+  bmi          Decimal? @db.Decimal(5, 2)
+  bodyFatPercent Decimal? @db.Decimal(5, 2)
+  muscleMassKg Decimal? @db.Decimal(6, 2)
+  restingHeartRate Int?
+  /// chest, waist, hips, arms, thighs, calves — centimetres
+  measurements Json?    @db.JsonB
+  strengthMarkers Json? @db.JsonB
+  trainerNotes String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  member       Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  assessedBy   OrgUser?     @relation(fields: [assessedByOrgUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, memberId, assessedOn])
+  @@map("fitness_assessments")
+}
+
+/// Stored only when a PROGRESS_PHOTOS consent row exists for the member.
+model ProgressPhoto {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @db.Uuid
+  memberId       String   @db.Uuid
+  fileKey        String
+  pose           String?
+  takenOn        DateTime @db.Date
+  consentId      String   @db.Uuid
+  visibleToTrainer Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  member       Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, memberId, takenOn])
+  @@map("progress_photos")
+}
+
+// ------------------------------------------------------------- classes ---
+
+model ClassType {
+  id             String  @id @default(uuid(7)) @db.Uuid
+  organizationId String  @db.Uuid
+  name           String
+  description    String?
+  defaultDurationMinutes Int @default(60)
+  defaultCapacity Int    @default(20)
+  colorHex       String?
+  requiresBooking Boolean @default(true)
+  isActive       Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  classes      GymClass[]
+
+  @@unique([organizationId, name])
+  @@map("class_types")
+}
+
+model GymClass {
+  id             String      @id @default(uuid(7)) @db.Uuid
+  organizationId String      @db.Uuid
+  branchId       String?     @db.Uuid
+  classTypeId    String      @db.Uuid
+  trainerOrgUserId String?   @db.Uuid
+
+  title     String?
+  startsAt  DateTime    @db.Timestamptz(3)
+  endsAt    DateTime    @db.Timestamptz(3)
+  capacity  Int
+  bookedCount   Int     @default(0)
+  waitlistCount Int     @default(0)
+  status    ClassStatus @default(SCHEDULED)
+  room      String?
+  notes     String?
+
+  /// RFC 5545 style rule for a repeating class; null for a one-off.
+  recurrenceRule String?
+  recurrenceGroupId String? @db.Uuid
+
+  cancelledAt  DateTime? @db.Timestamptz(3)
+  cancelReason String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  classType    ClassType    @relation(fields: [classTypeId], references: [id])
+  trainer      OrgUser?     @relation(fields: [trainerOrgUserId], references: [id], onDelete: SetNull)
+
+  bookings ClassBooking[]
+
+  @@index([organizationId, startsAt])
+  @@index([organizationId, branchId, startsAt])
+  @@index([organizationId, trainerOrgUserId, startsAt])
+  @@map("classes")
+}
+
+model ClassBooking {
+  id             String             @id @default(uuid(7)) @db.Uuid
+  organizationId String             @db.Uuid
+  classId        String             @db.Uuid
+  memberId       String             @db.Uuid
+  status         ClassBookingStatus @default(BOOKED)
+  waitlistPosition Int?
+
+  bookedAt    DateTime  @default(now()) @db.Timestamptz(3)
+  cancelledAt DateTime? @db.Timestamptz(3)
+  cancelReason String?
+  attendedAt  DateTime? @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  class        GymClass     @relation(fields: [classId], references: [id], onDelete: Cascade)
+  member       Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, memberId])
+  @@index([organizationId, memberId, status])
+  @@map("class_bookings")
+}

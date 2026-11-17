@@ -1,0 +1,46 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# builds
+.next/
+out/
+dist/
+build/
+.turbo/
+
+# environment — NEVER commit these
+.env
+.env.*
+!.env.example
+
+# secrets of any shape
+*.pem
+*.key
+*.p8
+*.p12
+*.jks
+service-account*.json
+firebase-adminsdk*.json
+credentials.json
+
+# local database
+pgdata/
+*.sqlite
+*.sqlite3
+
+# logs and os noise
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# test output
+coverage/
+playwright-report/
+test-results/
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+.idea/

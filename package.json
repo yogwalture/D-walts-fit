@@ -1,0 +1,31 @@
+{
+  "name": "gym-cloud",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Multi-tenant gym management and fitness SaaS platform",
+  "engines": {
+    "node": ">=20 <25",
+    "pnpm": ">=10"
+  },
+  "packageManager": "pnpm@10.28.0",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:isolation": "pnpm --filter @gym/db test:isolation",
+    "db:generate": "pnpm --filter @gym/db generate",
+    "db:migrate": "pnpm --filter @gym/db migrate",
+    "db:migrate:deploy": "pnpm --filter @gym/db migrate:deploy",
+    "db:seed": "pnpm --filter @gym/db seed",
+    "db:reset": "pnpm --filter @gym/db reset"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "vitest": "^2.1.8"
+  }
+}

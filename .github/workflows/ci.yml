@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lint, types, migrations, isolation
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gym_cloud
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://gym_app:ci@localhost:5432/gym_cloud?schema=public
+      DIRECT_DATABASE_URL: postgresql://gym_owner:ci@localhost:5432/gym_cloud?schema=public
+      JOBS_DATABASE_URL: postgresql://gym_jobs:ci@localhost:5432/gym_cloud?schema=public
+      ENCRYPTION_KEY: Y2ktb25seS1rZXktbm90LXVzZWQtZm9yLWFueXRoaW5nLXJlYWw=
+      AUTH_SECRET: ci-only-auth-secret
+      CRON_SECRET: ci-only-cron-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The roles matter as much as the schema: the application role must
+      # not be able to bypass row-level security, and CI must prove it.
+      - name: Create database roles
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d gym_cloud <<'SQL'
+            CREATE ROLE gym_owner LOGIN PASSWORD 'ci' NOSUPERUSER CREATEDB NOBYPASSRLS;
+            CREATE ROLE gym_app   LOGIN PASSWORD 'ci' NOSUPERUSER NOCREATEDB NOBYPASSRLS;
+            CREATE ROLE gym_jobs  LOGIN PASSWORD 'ci' NOSUPERUSER NOCREATEDB BYPASSRLS;
+            GRANT CONNECT ON DATABASE gym_cloud TO gym_app, gym_jobs;
+            ALTER SCHEMA public OWNER TO gym_owner;
+          SQL
+
+      - run: pnpm db:generate
+      - run: pnpm db:migrate:deploy
+      - run: pnpm db:seed
+
+      - run: pnpm typecheck
+      - run: pnpm lint
+
+      - name: Tenant isolation suite
+        run: pnpm vitest run tests/isolation
+
+      - run: pnpm test
+
+  # A deploy only happens from a green build on main. The Hostinger side is
+  # wired to this branch, so a red build never reaches production.
+  deploy:
+    name: Deploy to Hostinger
+    needs: verify
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply migrations to production
+        env:
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm db:migrate:deploy
+      - name: Note
+        run: |
+          echo "Hostinger rebuilds from this branch automatically."
+          echo "Migrations ran first, so the new code never meets an old schema."

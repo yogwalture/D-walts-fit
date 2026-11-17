@@ -1,0 +1,558 @@
+// ===========================================================================
+//  MEMBERSHIPS, ATTENDANCE AND FINANCE
+//
+//  Financial history is append-only. A correction is a new row plus a
+//  reversal; nothing overwrites a recorded payment or issued invoice.
+// ===========================================================================
+
+model MembershipPlan {
+  id             String       @id @default(uuid(7)) @db.Uuid
+  organizationId String       @db.Uuid
+
+  name        String
+  description String?
+  category    PlanCategory     @default(GENERAL)
+  durationUnit PlanDurationUnit @default(MONTH)
+  durationValue Int             @default(1)
+  /// For session-based packages such as 10 personal-training sessions.
+  sessionCount Int?
+
+  price     Decimal @db.Decimal(12, 2)
+  taxRateId String? @db.Uuid
+  /// true when `price` already includes tax
+  priceIncludesTax Boolean @default(true)
+
+  joiningFee       Decimal @default(0) @db.Decimal(12, 2)
+  securityDeposit  Decimal @default(0) @db.Decimal(12, 2)
+
+  /// Access rules: time windows, branch access, guest passes, included services
+  accessRules      Json?   @db.JsonB
+  includedServices String[] @default([])
+
+  availableAtAllBranches Boolean @default(true)
+  freezeAllowed          Boolean @default(false)
+  freezeMaxDays          Int     @default(0)
+  graceDays              Int     @default(0)
+  autoRenew              Boolean @default(false)
+  discountAllowed        Boolean @default(true)
+  transferAllowed        Boolean @default(false)
+
+  isActive    Boolean  @default(true)
+  displayOrder Int     @default(0)
+  visibleToMembers Boolean @default(true)
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  taxRate      TaxRate?     @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
+
+  planBranches  PlanBranch[]
+  subscriptions Subscription[]
+  interestedLeads Lead[]
+  invoiceLines  InvoiceLine[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, isActive])
+  @@map("membership_plans")
+}
+
+model PlanBranch {
+  id             String @id @default(uuid(7)) @db.Uuid
+  organizationId String @db.Uuid
+  planId         String @db.Uuid
+  branchId       String @db.Uuid
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan         MembershipPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  branch       Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, branchId])
+  @@index([organizationId, branchId])
+  @@map("plan_branches")
+}
+
+model Subscription {
+  id             String             @id @default(uuid(7)) @db.Uuid
+  organizationId String             @db.Uuid
+  memberId       String             @db.Uuid
+  planId         String             @db.Uuid
+  branchId       String?            @db.Uuid
+
+  status    SubscriptionStatus @default(PENDING)
+  startDate DateTime           @db.Date
+  endDate   DateTime           @db.Date
+  /// endDate plus the plan's grace days; check-in is blocked past this.
+  graceUntil DateTime?         @db.Date
+
+  /// Price actually agreed, which may differ from the plan's list price.
+  listPrice      Decimal @db.Decimal(12, 2)
+  discountAmount Decimal @default(0) @db.Decimal(12, 2)
+  discountId     String? @db.Uuid
+  taxableAmount  Decimal @db.Decimal(12, 2)
+  taxAmount      Decimal @default(0) @db.Decimal(12, 2)
+  totalAmount    Decimal @db.Decimal(12, 2)
+  paidAmount     Decimal @default(0) @db.Decimal(12, 2)
+
+  sessionsTotal     Int?
+  sessionsConsumed  Int  @default(0)
+
+  frozenDaysUsed Int @default(0)
+  autoRenew      Boolean @default(false)
+
+  previousSubscriptionId String? @db.Uuid
+  cancelledAt     DateTime? @db.Timestamptz(3)
+  cancelReason    String?
+
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt       DateTime? @db.Timestamptz(3)
+  createdByUserId String?   @db.Uuid
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  member       Member         @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  plan         MembershipPlan @relation(fields: [planId], references: [id])
+  branch       Branch?        @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  discount     Discount?      @relation(fields: [discountId], references: [id], onDelete: SetNull)
+
+  events       SubscriptionEvent[]
+  freezes      SubscriptionFreeze[]
+  invoiceLines InvoiceLine[]
+  attendance   Attendance[]
+  payments     Payment[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, memberId, status])
+  @@index([organizationId, endDate, status])
+  @@index([organizationId, branchId, status])
+  @@map("subscriptions")
+}
+
+/// Append-only history of everything that happened to a subscription.
+model SubscriptionEvent {
+  id             String                @id @default(uuid(7)) @db.Uuid
+  organizationId String                @db.Uuid
+  subscriptionId String                @db.Uuid
+  eventType      SubscriptionEventType
+  effectiveDate  DateTime              @db.Date
+  daysDelta      Int                   @default(0)
+  amountDelta    Decimal               @default(0) @db.Decimal(12, 2)
+
+  fromPlanId String? @db.Uuid
+  toPlanId   String? @db.Uuid
+  fromBranchId String? @db.Uuid
+  toBranchId   String? @db.Uuid
+
+  reason   String?
+  metadata Json?   @db.JsonB
+
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  actorUserId   String?  @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, subscriptionId, createdAt])
+  @@index([organizationId, eventType])
+  @@map("subscription_events")
+}
+
+model SubscriptionFreeze {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @db.Uuid
+  subscriptionId String   @db.Uuid
+  fromDate       DateTime @db.Date
+  toDate         DateTime @db.Date
+  daysCredited   Int
+  reason         String?
+  liftedEarlyAt  DateTime? @db.Timestamptz(3)
+
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  actorUserId   String?  @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, subscriptionId])
+  @@map("subscription_freezes")
+}
+
+/// One row per member per day. The unique constraint is the duplicate
+/// check-in guard — it lives in the database, not in the interface.
+model Attendance {
+  id             String           @id @default(uuid(7)) @db.Uuid
+  organizationId String           @db.Uuid
+  branchId       String?          @db.Uuid
+  memberId       String           @db.Uuid
+  subscriptionId String?          @db.Uuid
+
+  attendanceDate DateTime         @db.Date
+  checkedInAt    DateTime         @default(now()) @db.Timestamptz(3)
+  checkedOutAt   DateTime?        @db.Timestamptz(3)
+  durationMinutes Int?
+  method         AttendanceMethod @default(MEMBER_QR)
+
+  /// Captured at the moment of entry so the record stays truthful later.
+  subscriptionStatusAtEntry SubscriptionStatus?
+  wasOverride      Boolean @default(false)
+  overrideReason   String?
+
+  recordedByUserId String? @db.Uuid
+  deviceLabel      String?
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branch       Branch?       @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  member       Member        @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@unique([memberId, attendanceDate])
+  @@index([organizationId, attendanceDate])
+  @@index([organizationId, branchId, attendanceDate])
+  @@index([organizationId, memberId, attendanceDate])
+  @@map("attendance")
+}
+
+/// Rotating QR secret. A static code can be screenshotted and shared;
+/// this one is re-issued and the previous token is revoked.
+model MemberQrToken {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  organizationId String    @db.Uuid
+  memberId       String    @db.Uuid
+  tokenHash      String    @unique
+  issuedAt       DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt      DateTime? @db.Timestamptz(3)
+  revokedAt      DateTime? @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  member       Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, memberId, revokedAt])
+  @@map("member_qr_tokens")
+}
+
+/// The code displayed at the gym entrance for members to scan.
+model BranchQrCode {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  organizationId String    @db.Uuid
+  branchId       String    @db.Uuid
+  label          String?
+  tokenHash      String    @unique
+  rotatedAt      DateTime  @default(now()) @db.Timestamptz(3)
+  revokedAt      DateTime? @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, branchId])
+  @@map("branch_qr_codes")
+}
+
+model TaxRate {
+  id             String  @id @default(uuid(7)) @db.Uuid
+  organizationId String  @db.Uuid
+  name           String
+  /// Total percentage, e.g. 18.00 for 18% GST
+  percentage     Decimal @db.Decimal(5, 2)
+  /// Component split for Indian GST, e.g. { "cgst": 9, "sgst": 9 }
+  components     Json?   @db.JsonB
+  hsnSacCode     String?
+  isDefault      Boolean @default(false)
+  isActive       Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  plans        MembershipPlan[]
+  invoiceLines InvoiceLine[]
+  products     Product[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, isActive])
+  @@map("tax_rates")
+}
+
+/// Per-organization, per-series, per-financial-year counter. Allocated
+/// under a row lock so invoice numbering is gapless under concurrency.
+model InvoiceSequence {
+  id             String @id @default(uuid(7)) @db.Uuid
+  organizationId String @db.Uuid
+  series         String
+  financialYear  String
+  prefix         String
+  nextNumber     Int    @default(1)
+  padding        Int    @default(5)
+
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, series, financialYear])
+  @@map("invoice_sequences")
+}
+
+model Invoice {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  organizationId String        @db.Uuid
+  branchId       String?       @db.Uuid
+  memberId       String?       @db.Uuid
+
+  series        String   @default("INV")
+  financialYear String
+  invoiceNumber Int
+  invoiceCode   String
+
+  status    InvoiceStatus @default(DRAFT)
+  issueDate DateTime      @db.Date
+  dueDate   DateTime?     @db.Date
+
+  subtotal       Decimal @db.Decimal(12, 2)
+  discountAmount Decimal @default(0) @db.Decimal(12, 2)
+  taxAmount      Decimal @default(0) @db.Decimal(12, 2)
+  roundingAmount Decimal @default(0) @db.Decimal(12, 2)
+  total          Decimal @db.Decimal(12, 2)
+  amountPaid     Decimal @default(0) @db.Decimal(12, 2)
+  amountDue      Decimal @default(0) @db.Decimal(12, 2)
+
+  placeOfSupply String?
+  customerGstin String?
+  notes         String?
+  pdfFileKey    String?
+
+  cancelledAt     DateTime? @db.Timestamptz(3)
+  cancelReason    String?
+
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+  createdByUserId String?  @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  member       Member?      @relation(fields: [memberId], references: [id], onDelete: SetNull)
+
+  lines    InvoiceLine[]
+  payments Payment[]
+  refunds  Refund[]
+
+  @@unique([organizationId, series, financialYear, invoiceNumber])
+  @@unique([organizationId, invoiceCode])
+  @@index([organizationId, status])
+  @@index([organizationId, memberId])
+  @@index([organizationId, issueDate])
+  @@map("invoices")
+}
+
+model InvoiceLine {
+  id             String  @id @default(uuid(7)) @db.Uuid
+  organizationId String  @db.Uuid
+  invoiceId      String  @db.Uuid
+
+  description String
+  itemType    String
+  planId         String? @db.Uuid
+  subscriptionId String? @db.Uuid
+  productId      String? @db.Uuid
+
+  quantity   Decimal @default(1) @db.Decimal(10, 3)
+  unitPrice  Decimal @db.Decimal(12, 2)
+  discountAmount Decimal @default(0) @db.Decimal(12, 2)
+  taxRateId  String? @db.Uuid
+  taxPercentage Decimal @default(0) @db.Decimal(5, 2)
+  taxAmount  Decimal @default(0) @db.Decimal(12, 2)
+  lineTotal  Decimal @db.Decimal(12, 2)
+  hsnSacCode String?
+  displayOrder Int   @default(0)
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invoice      Invoice         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  plan         MembershipPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+  subscription Subscription?   @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  product      Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  taxRate      TaxRate?        @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, invoiceId])
+  @@map("invoice_lines")
+}
+
+/// A payment exists only after its gateway webhook signature verifies.
+/// Cash and UPI entries are recorded by staff and carry recordedByUserId.
+model Payment {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  organizationId String        @db.Uuid
+  branchId       String?       @db.Uuid
+  memberId       String?       @db.Uuid
+  invoiceId      String?       @db.Uuid
+  subscriptionId String?       @db.Uuid
+
+  receiptCode String?
+  amount      Decimal       @db.Decimal(12, 2)
+  currency    String        @default("INR")
+  method      PaymentMethod
+  status      PaymentStatus @default(PENDING)
+
+  referenceNumber   String?
+  razorpayOrderId   String? @unique
+  razorpayPaymentId String? @unique
+  razorpaySignature String?
+  gatewayFee        Decimal? @db.Decimal(12, 2)
+  gatewayPayload    Json?    @db.JsonB
+
+  receivedAt       DateTime  @default(now()) @db.Timestamptz(3)
+  settledAt        DateTime? @db.Timestamptz(3)
+  failureReason    String?
+  notes            String?
+  receiptFileKey   String?
+
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+  recordedByUserId String?  @db.Uuid
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branch       Branch?       @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  member       Member?       @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  invoice      Invoice?      @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  refunds Refund[]
+
+  @@unique([organizationId, receiptCode])
+  @@index([organizationId, status, receivedAt])
+  @@index([organizationId, memberId])
+  @@index([organizationId, branchId, receivedAt])
+  @@index([organizationId, method])
+  @@map("payments")
+}
+
+model Refund {
+  id             String       @id @default(uuid(7)) @db.Uuid
+  organizationId String       @db.Uuid
+  paymentId      String       @db.Uuid
+  invoiceId      String?      @db.Uuid
+
+  amount Decimal      @db.Decimal(12, 2)
+  status RefundStatus @default(REQUESTED)
+  reason String
+
+  razorpayRefundId String? @unique
+  gatewayPayload   Json?   @db.JsonB
+
+  requestedAt       DateTime  @default(now()) @db.Timestamptz(3)
+  approvedAt        DateTime? @db.Timestamptz(3)
+  processedAt       DateTime? @db.Timestamptz(3)
+  requestedByUserId String?   @db.Uuid
+  approvedByUserId  String?   @db.Uuid
+  failureReason     String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  payment      Payment      @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice      Invoice?     @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@map("refunds")
+}
+
+model Discount {
+  id             String       @id @default(uuid(7)) @db.Uuid
+  organizationId String       @db.Uuid
+  code           String
+  name           String
+  discountType   DiscountType @default(PERCENTAGE)
+  value          Decimal      @db.Decimal(10, 2)
+  maxDiscountAmount Decimal?  @db.Decimal(12, 2)
+
+  applicablePlanIds String[] @default([])
+  validFrom         DateTime? @db.Date
+  validUntil        DateTime? @db.Date
+  maxUses           Int?
+  maxUsesPerMember  Int      @default(1)
+  usedCount         Int      @default(0)
+  isActive          Boolean  @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, isActive])
+  @@map("discounts")
+}
+
+model ExpenseCategory {
+  id             String  @id @default(uuid(7)) @db.Uuid
+  organizationId String  @db.Uuid
+  name           String
+  description    String?
+  isActive       Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  expenses     Expense[]
+
+  @@unique([organizationId, name])
+  @@map("expense_categories")
+}
+
+model Vendor {
+  id             String  @id @default(uuid(7)) @db.Uuid
+  organizationId String  @db.Uuid
+  name           String
+  contactPerson  String?
+  phone          String?
+  email          String?
+  gstin          String?
+  address        String?
+  notes          String?
+  isActive       Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  expenses          Expense[]
+  products          Product[]
+  equipment         Equipment[]
+  maintenanceLogs   EquipmentMaintenanceLog[]
+
+  @@unique([organizationId, name])
+  @@map("vendors")
+}
+
+model Expense {
+  id             String  @id @default(uuid(7)) @db.Uuid
+  organizationId String  @db.Uuid
+  branchId       String? @db.Uuid
+  categoryId     String? @db.Uuid
+  vendorId       String? @db.Uuid
+
+  title       String
+  description String?
+  amount      Decimal       @db.Decimal(12, 2)
+  taxAmount   Decimal       @default(0) @db.Decimal(12, 2)
+  totalAmount Decimal       @db.Decimal(12, 2)
+  method      PaymentMethod @default(CASH)
+  referenceNumber String?
+  expenseDate DateTime      @db.Date
+  attachmentFileKey String?
+  isRecurring Boolean       @default(false)
+
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt        DateTime? @db.Timestamptz(3)
+  recordedByUserId String?   @db.Uuid
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branch       Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  category     ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  vendor       Vendor?          @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, expenseDate])
+  @@index([organizationId, branchId, expenseDate])
+  @@index([organizationId, categoryId])
+  @@map("expenses")
+}
