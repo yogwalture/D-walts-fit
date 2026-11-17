@@ -2,7 +2,15 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getDashboardSummary, getCharts, getActionLists, peakHours, type DateRangeKey } from '@gym/core';
 import { requireActor, holds } from '@/lib/current-session';
-import { Card, EmptyState, PageHeader, StatTile, rupees, shortDate } from '@/components/ui';
+import {
+  Card,
+  EmptyState,
+  PageHeader,
+  StatTile,
+  rupees,
+  shortDate,
+  spoken,
+} from '@/components/ui';
 import { CountChart, MixChart, PeakHoursChart, RevenueChart } from '@/components/charts';
 import { RangePicker } from './range-picker';
 
@@ -164,7 +172,12 @@ export default async function DashboardPage({
 
         {canSeeMoney && charts.collectionByMethod.length > 0 && (
           <Card title="How members pay">
-            <MixChart data={charts.collectionByMethod} />
+            <MixChart
+              data={charts.collectionByMethod.map((slice) => ({
+                label: spoken(slice.label),
+                value: slice.value,
+              }))}
+            />
           </Card>
         )}
       </div>

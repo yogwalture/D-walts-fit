@@ -11,6 +11,7 @@ import {
   StatTile,
   rupees,
   shortDate,
+  spoken,
 } from '@/components/ui';
 import { MixChart } from '@/components/charts';
 
@@ -81,7 +82,7 @@ export default async function PaymentsPage({
         <Card title="Today by method">
           <MixChart
             data={collection.byMethod.map((entry) => ({
-              label: entry.method.toLowerCase().replace('_', ' '),
+              label: spoken(entry.method),
               value: Number(entry.amount),
             }))}
           />
@@ -123,7 +124,7 @@ export default async function PaymentsPage({
               key: 'method',
               header: 'How',
               cell: (row) => (
-                <span className="text-ink-muted">{row.method.toLowerCase().replace('_', ' ')}</span>
+                <span className="text-ink-muted">{spoken(row.method)}</span>
               ),
             },
             {

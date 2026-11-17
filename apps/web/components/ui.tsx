@@ -211,6 +211,34 @@ export function DataTable<T>({
 }
 
 /**
+ * Enum values, as a person would say them.
+ *
+ * The database says `BANK_TRANSFER` and `MEMBER_QR`; a receptionist says
+ * "bank transfer" and "member QR". One helper, so the same value never
+ * appears as `CASH` on one screen and `cash` on the next.
+ */
+const SPOKEN: Record<string, string> = {
+  CASH: 'Cash',
+  UPI: 'UPI',
+  CARD: 'Card',
+  BANK_TRANSFER: 'Bank transfer',
+  CHEQUE: 'Cheque',
+  RAZORPAY: 'Online',
+  WALLET: 'Wallet',
+  OTHER: 'Other',
+  MEMBER_QR: 'Member QR',
+  BRANCH_QR: 'Branch QR',
+  SEARCH: 'Searched',
+  MANUAL: 'Manual',
+  KIOSK: 'Kiosk',
+};
+
+export function spoken(value: string | null | undefined): string {
+  if (!value) return '—';
+  return SPOKEN[value] ?? value.toLowerCase().replace(/_/g, ' ');
+}
+
+/**
  * Rupees, grouped the Indian way: ₹1,50,000.00 rather than ₹150,000.00.
  *
  * Takes `unknown` because Prisma hands back a Decimal for money columns and

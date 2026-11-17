@@ -1,7 +1,16 @@
 import type { Metadata } from 'next';
 import { peakHours, todaysAttendance } from '@gym/core';
 import { requireActor, holds } from '@/lib/current-session';
-import { Badge, Card, DataTable, EmptyState, PageHeader, StatTile, timeOfDay } from '@/components/ui';
+import {
+  Badge,
+  Card,
+  DataTable,
+  EmptyState,
+  PageHeader,
+  StatTile,
+  spoken,
+  timeOfDay,
+} from '@/components/ui';
 import { PeakHoursChart } from '@/components/charts';
 import { CheckInPanel } from './check-in-panel';
 
@@ -86,9 +95,7 @@ export default async function AttendancePage() {
               hideOnMobile: true,
               cell: (row) => (
                 <span className="flex items-center gap-2">
-                  <span className="text-sm text-ink-muted">
-                    {row.method.toLowerCase().replace('_', ' ')}
-                  </span>
+                  <span className="text-sm text-ink-muted">{spoken(row.method)}</span>
                   {row.wasOverride && <Badge tone="expiring">override</Badge>}
                 </span>
               ),

@@ -12,6 +12,7 @@ import {
   membershipTone,
   rupees,
   shortDate,
+  spoken,
   timeOfDay,
 } from '@/components/ui';
 import { SellMembershipPanel } from './sell-panel';
@@ -255,7 +256,7 @@ export default async function MemberPage({
                     <div className="min-w-0">
                       <p className="text-base text-ink">{rupees(payment.amount)}</p>
                       <p className="text-sm text-ink-muted">
-                        {payment.method.toLowerCase().replace('_', ' ')} ·{' '}
+                        {spoken(payment.method)} ·{' '}
                         <span className="tabular-nums">{payment.receiptCode}</span>
                       </p>
                     </div>
