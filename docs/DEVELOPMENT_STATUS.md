@@ -30,6 +30,23 @@ only when real credentials have been used and a real call has succeeded.
 | **Tenant isolation suite — 40 tests** | **All passing against a real PostgreSQL** |
 | CI pipeline | Lint, typecheck, migrate, seed, isolation suite, deploy gate |
 | ESLint isolation rules | Raw client import, unpaginated `findMany`, and `$queryRawUnsafe` all fail the build |
+| Zod contract layer | One schema validates the form and the API body; the handler is typed on the schema's output |
+| Error taxonomy | 27 stable error codes with honest HTTP status; 404 for both "missing" and "not yours" |
+| Permission engine runtime | Role → overrides → branch scope → plan features, resolved once per request |
+| Argon2id password hashing | Prebuilt binaries, no compiler needed at install — which matters on shared hosting |
+| TOTP (RFC 6238) | Implemented on `node:crypto`; ±1 step drift window, recovery codes |
+| Login with lockout | Per-email and per-IP throttling; identical message and timing for unknown accounts |
+| Database-backed sessions | Only the SHA-256 of the token is stored; logout revokes server-side |
+| Tenant provisioning | Gym, branch, owner, trial, consent rows, tax rate and invoice sequence in one transaction |
+| Organization switching | Membership verified server-side, session row rewritten, switch audited |
+| Audit logging with redaction | Written in the same transaction as the change; credentials never reach the log |
+| Next.js 15 application | Builds clean, runs, serves the marketing site, auth pages, API and gym portal |
+| Route handler wrapper | Origin check → session → permission → validation → handler, in that order |
+| Permission-aware navigation | The sidebar renders from the resolved permission set, with no role checks in markup |
+| Security headers + CSP | Nonce-based CSP, HSTS, frame-ancestors none, no `x-powered-by` — verified over HTTP |
+| Design system | Light and dark tokens, one accent, cards, skeletons, empty and error states |
+| **Auth and permissions suite — 34 tests** | **Passing on the application role, not a privileged one** |
+| **HTTP smoke suite — 40 checks** | **Passing against a running server with curl and a real browser** |
 
 ### What the isolation suite actually proves
 
@@ -53,19 +70,17 @@ Acting as Gym A, against Gym B's real record ids:
 
 | Item | Note |
 | --- | --- |
-| Next.js application shell | Scaffold, routing groups, middleware |
-| Authentication | Argon2id, sessions, MFA, lockout, invitations |
-| Permission engine runtime | Resolution order, `requirePermission()` guard, request-scoped cache |
-| Design system | Tokens, primitives, data table, layout shell |
+| Member management | Registration, search, filters, profile, bulk import — Phase 2 |
+| Membership engine | Plans, sell, renew, freeze, transfer — Phase 2 |
 
 ---
 
 ## Pending — this phase
 
-- Organization switching with audit trail
-- Tenant provisioning service (the one legitimate cross-tenant write)
-- Password reset and staff invitation flows
-- Seven-role login verification against a permissioned empty portal
+- Password reset and staff invitation flows (tokens and hashing are built; the screens are not)
+- MFA enrolment screen (TOTP, recovery codes and verification are built and tested)
+- Member OTP login (contracts defined; the flow is not built)
+- Platform console shell for Super Admin
 - First deployment to Hostinger over HTTPS
 
 ---
@@ -93,6 +108,18 @@ host-agnostic and runs locally against PostgreSQL today.
 
 ---
 
+## Bugs found by the verification layers, and fixed
+
+Recorded because each one says something about where the bugs actually are.
+
+| Bug | Found by | Why it mattered |
+| --- | --- | --- |
+| Login resolved no organization: the membership lookup ran with no actor context, so row-level security correctly denied the row | HTTP smoke test | It failed **closed** — the user landed with no gym rather than the wrong one — which is the right failure direction, but still a bug. The integration test had missed it because it used the privileged job role; that test now runs on the application role, as production does. |
+| The CSP nonce never reached Next's script tags, so every page loaded with its JavaScript blocked | A real browser, via Playwright | Forms silently degraded to native GET submissions — which put a password in a URL. No amount of curl testing would have caught it: curl does not execute a Content-Security-Policy. The fix sets the CSP on the request headers so Next can stamp the nonce, and pages that ship interactive JavaScript now render per request. Both auth forms also carry `method="post"` so a JavaScript failure can never again put credentials in a query string. |
+| The health endpoint was behind the auth gate | HTTP smoke test | Uptime monitoring would have reported the site down from the first deploy. |
+
+---
+
 ## Known limitations, stated plainly
 
 | Limitation | Why | Mitigation |
@@ -106,6 +133,15 @@ host-agnostic and runs locally against PostgreSQL today.
 ---
 
 ## Changelog
+
+**17 November 2026 — later**
+Permission engine, authentication, tenant provisioning and the Next.js
+application shell. Argon2id, TOTP, database-backed sessions, login with
+lockout, organization switching, audit logging with redaction. Marketing
+page, login, gym registration, permission-aware portal and dashboard, all
+building and running. 114 tests passing: 40 isolation, 34 auth and
+permissions, 40 HTTP checks against a running server. Three bugs found and
+fixed, recorded above.
 
 **17 November 2026**
 Phase 1 opened. Monorepo, data model, migrations, row-level security,

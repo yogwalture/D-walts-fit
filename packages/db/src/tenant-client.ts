@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { basePrisma } from './client.js';
+import { basePrisma } from './client';
 
 // ---------------------------------------------------------------- types ---
 
@@ -224,6 +224,32 @@ export async function withPlatform<T>(
   return basePrisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('app.current_user_id', ${userId}::text, true)`;
     await tx.$executeRaw`SELECT set_config('app.is_platform', 'on', true)`;
+    return fn(tx as never);
+  });
+}
+
+/**
+ * Actor context with NO tenant selected.
+ *
+ * Exists for exactly one job: resolving a session. At that moment we know who
+ * the user is but not yet which gym they are acting in, and we need to read
+ * the memberships they may switch into. The `org_users` and `organizations`
+ * policies permit that through `current_actor_id()`, so this stays inside
+ * row-level security — it simply has no organization to scope to yet.
+ *
+ * Returns the unextended client, because the tenant extension would refuse a
+ * query with no organization. Use it for nothing else: every other read has
+ * a tenant and belongs in withTenant().
+ */
+export async function withActor<T>(
+  userId: string,
+  fn: (tx: Omit<typeof basePrisma, '$transaction' | '$connect' | '$disconnect'>) => Promise<T>,
+): Promise<T> {
+  if (!userId) throw new MissingTenantContextError('<actor>', 'withActor');
+
+  return basePrisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.current_user_id', ${userId}::text, true)`;
+    await tx.$executeRaw`SELECT set_config('app.is_platform', 'off', true)`;
     return fn(tx as never);
   });
 }

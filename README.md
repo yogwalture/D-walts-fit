@@ -26,8 +26,9 @@ project's architecture document.
 | Migrations | `init` + `row_level_security`, both applied and reversible by replay |
 | Tenant isolation | 79 tables under forced row-level security, 79 policies |
 | Permission registry | 140 permissions, 7 system roles seeded |
-| Isolation test suite | 40 tests, all passing |
-| Web application | Not started — next in Phase 1 |
+| Authentication | Argon2id, database sessions, TOTP, lockout, organization switching |
+| Web application | Next.js 15 — marketing page, login, gym registration, permission-aware portal |
+| Tests | **114 passing**: 40 isolation, 34 auth and permissions, 40 HTTP checks |
 
 ---
 
@@ -74,6 +75,17 @@ pnpm db:generate         # generate the Prisma client
 pnpm db:migrate:deploy   # apply migrations
 pnpm db:seed             # permissions, roles, SaaS plans, two demo gyms
 pnpm test:isolation      # prove the tenants are isolated
+pnpm dev                 # http://localhost:3000
+```
+
+Then register a gym at `/register-gym`. You get a tenant, an owner account, a
+branch, a 14-day trial, a tax rate and an invoice sequence — and you land on a
+dashboard counting your own (empty) records.
+
+To run the HTTP checks against it:
+
+```bash
+BASE_URL=http://localhost:3000 ./tests/e2e/http-smoke.sh
 ```
 
 The seed creates two demo gyms — **Iron Temple Fitness** and **Pulse Fitness
@@ -94,6 +106,7 @@ through the invitation flow, so no demo credential can reach production.
 | `pnpm lint` | ESLint, including the isolation-critical rules |
 | `pnpm test` | Unit and integration tests |
 | `pnpm test:isolation` | The tenant isolation suite |
+| `./tests/e2e/http-smoke.sh` | End-to-end HTTP checks against a running server |
 | `pnpm db:migrate` | Create and apply a migration in development |
 | `pnpm db:reset` | Drop, re-migrate and re-seed |
 

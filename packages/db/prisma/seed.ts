@@ -14,7 +14,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import { PERMISSIONS, ROLE_MATRIX } from './seed-data/permissions.js';
+import { PERMISSIONS, ROLE_MATRIX } from './seed-data/permissions';
 
 const url =
   process.env.SEED_DATABASE_URL ??

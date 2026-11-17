@@ -15,6 +15,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@prisma/client': requireFromDb.resolve('@prisma/client'),
+      '@gym/db': new URL('./packages/db/src/index.ts', import.meta.url).pathname,
+      '@gym/core': new URL('./packages/core/src/index.ts', import.meta.url).pathname,
+      '@gym/contracts': new URL('./packages/contracts/src/index.ts', import.meta.url).pathname,
     },
   },
   test: {
