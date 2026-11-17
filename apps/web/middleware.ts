@@ -29,6 +29,7 @@ const PUBLIC_PATHS = [
   '/forgot-password',
   '/reset-password',
   '/accept-invitation',
+  '/member-login',
 ];
 
 const PUBLIC_PREFIXES = [

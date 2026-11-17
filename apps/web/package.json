@@ -16,7 +16,8 @@
     "zod": "^3.24.1",
     "@gym/core": "workspace:*",
     "@gym/db": "workspace:*",
-    "@gym/contracts": "workspace:*"
+    "@gym/contracts": "workspace:*",
+    "@gym/integrations": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^19.0.2",

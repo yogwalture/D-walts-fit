@@ -119,6 +119,91 @@ else
   printf '  – skipped (FOREIGN_ORG_ID not set)\n'
 fi
 
+
+# ------------------------------------------------------- account flows ---
+printf '\naccount recovery and invitations\n'
+
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/forgot-password")
+check "the forgot-password page loads" "200" "$code"
+
+body=$(curl -s -X POST "$BASE/api/v1/auth/forgot-password" \
+  -H 'content-type: application/json' -d "{\"email\":\"$EMAIL\"}")
+has "a reset request is acknowledged" "$body" "on its way"
+
+body2=$(curl -s -X POST "$BASE/api/v1/auth/forgot-password" \
+  -H 'content-type: application/json' -d "{\"email\":\"nobody.$STAMP@example.com\"}")
+check "an unknown address gets the identical answer" "$body" "$body2"
+
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/reset-password")
+check "the reset page loads without a token" "200" "$code"
+
+body=$(curl -s -X POST "$BASE/api/v1/auth/reset-password" \
+  -H 'content-type: application/json' \
+  -d '{"token":"0000000000000000000000000000000000000000000","password":"a perfectly fine passphrase 21"}')
+has "a forged reset token is refused" "$body" "NOT_FOUND"
+
+body=$(curl -s -o /tmp/e2e.inv -w '%{http_code}' "$BASE/accept-invitation?token=notarealtokenatallxxxxxxxxxxxxxx")
+has "a bad invitation link shows a plain expiry message" "$(cat /tmp/e2e.inv)" "has expired"
+
+body=$(curl -s "$BASE/api/v1/auth/invitation?token=notarealtokenatallxxxxxxxxxxxxxx")
+check "and the API reports it as absent, not as an error" '{"data":null}' "$body"
+
+# ---------------------------------------------------------- member login ---
+printf '\nmember login\n'
+
+body=$(curl -s -X POST "$BASE/api/v1/auth/member" \
+  -H 'content-type: application/json' \
+  -d '{"identifier":"9876543210","organizationSlug":"iron-temple"}')
+has "a code request is acknowledged" "$body" "on its way"
+
+body2=$(curl -s -X POST "$BASE/api/v1/auth/member" \
+  -H 'content-type: application/json' \
+  -d '{"identifier":"9000000000","organizationSlug":"no-such-gym"}')
+check "an unknown member at an unknown gym answers identically" "$body" "$body2"
+
+body=$(curl -s -X PUT "$BASE/api/v1/auth/member" \
+  -H 'content-type: application/json' \
+  -d '{"identifier":"9876543210","organizationSlug":"iron-temple","code":"000000"}')
+has "a wrong code is refused" "$body" "INVALID_CREDENTIALS"
+
+# ------------------------------------------------------------ authority ---
+printf '\nauthority boundaries\n'
+
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/admin")
+case "$code" in 302|303|307|308) ok "the platform console is closed to signed-out visitors";;
+  *) bad "the platform console is closed to signed-out visitors" "3xx" "$code";; esac
+
+code=$(curl -s -b "$JAR" -o /dev/null -w '%{http_code}' "$BASE/admin")
+check "and hidden from a gym owner, who is not platform staff" "404" "$code"
+
+body=$(curl -s -b "$JAR" "$BASE/api/v1/platform/stats")
+has "platform revenue is refused to a gym owner" "$body" "PERMISSION_DENIED"
+
+body=$(curl -s -b "$JAR" "$BASE/api/v1/platform/gyms")
+has "the gym list is refused to a gym owner" "$body" "PERMISSION_DENIED"
+
+code=$(curl -s -b "$JAR" -o /tmp/e2e.staff -w '%{http_code}' "$BASE/settings/users")
+check "the owner can open staff settings" "200" "$code"
+has "and sees the invite control" "$(cat /tmp/e2e.staff)" "Invite staff"
+
+body=$(curl -s -b "$JAR" "$BASE/api/v1/org/staff")
+has "the staff list returns the owner" "$body" "$EMAIL"
+hasnt "and carries no salary data" "$body" "salary"
+
+code=$(curl -s -b "$JAR" -o /tmp/e2e.sec -w '%{http_code}' "$BASE/settings/security")
+check "the security page loads" "200" "$code"
+has "and offers two-factor setup" "$(cat /tmp/e2e.sec)" "Two-factor authentication"
+
+body=$(curl -s -X POST "$BASE/api/v1/me/mfa")
+has "two-factor setup requires a session" "$body" "UNAUTHENTICATED"
+
+body=$(curl -s -b "$JAR" -X POST "$BASE/api/v1/org/staff" \
+  -H 'content-type: application/json' \
+  -d '{"email":"bad","fullName":"X","roleId":"not-a-uuid","branchIds":[]}')
+has "an invitation with bad input is rejected field by field" "$body" "VALIDATION_FAILED"
+
+rm -f /tmp/e2e.inv /tmp/e2e.staff /tmp/e2e.sec
+
 # ------------------------------------------------------------------ login ---
 printf '\nlogin\n'
 

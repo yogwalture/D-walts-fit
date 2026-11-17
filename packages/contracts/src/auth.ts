@@ -98,3 +98,32 @@ export interface SessionView {
   /** Every organization this user may switch into. */
   memberships: Array<{ organizationId: string; name: string; slug: string; roleKey: string }>;
 }
+
+export const inviteStaffInput = z.object({
+  email,
+  fullName: z.string().trim().min(2).max(120),
+  roleId: uuid,
+  branchIds: z.array(uuid).max(50).default([]),
+});
+
+export const setStaffStatusInput = z.object({
+  orgUserId: uuid,
+  status: z.enum(['ACTIVE', 'SUSPENDED']),
+});
+
+export const changeStaffRoleInput = z.object({
+  orgUserId: uuid,
+  roleId: uuid,
+});
+
+export const disableMfaInput = z.object({
+  password: z.string().min(1),
+});
+
+export const setGymStatusInput = z.object({
+  organizationId: uuid,
+  status: z.enum(['ACTIVE', 'SUSPENDED']),
+  reason: z.string().trim().max(500).optional(),
+});
+
+export type InviteStaffInput = z.infer<typeof inviteStaffInput>;

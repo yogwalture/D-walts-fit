@@ -5,7 +5,7 @@ const config: NextConfig = {
 
   // Workspace packages ship TypeScript source, not a build artefact, so Next
   // compiles them alongside the app. One less build step to go stale.
-  transpilePackages: ['@gym/core', '@gym/db', '@gym/contracts', '@gym/ui'],
+  transpilePackages: ['@gym/core', '@gym/db', '@gym/contracts', '@gym/ui', '@gym/integrations'],
 
   // The hosting plan runs the app as a persistent Node process, so the
   // standalone output is what gets started. It bundles only what is reached,

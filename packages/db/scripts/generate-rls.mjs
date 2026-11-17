@@ -36,8 +36,11 @@ const GLOBAL_TABLES = new Set([
  * unique hash of a 32-byte random token BEFORE any tenant is known, so a
  * tenant predicate cannot apply. Excluded deliberately and documented in
  * docs/SECURITY.md.
+ *
+ * verification_tokens is the same case: a person accepting an invitation or
+ * resetting a password has no session and no tenant yet.
  */
-const AUTH_TABLES = new Set(['sessions']);
+const AUTH_TABLES = new Set(['sessions', 'verification_tokens']);
 
 /** Nullable organizationId where NULL means "shared library, readable by all". */
 const SHARED_LIBRARY_TABLES = new Set([

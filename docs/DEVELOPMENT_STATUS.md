@@ -46,7 +46,22 @@ only when real credentials have been used and a real call has succeeded.
 | Security headers + CSP | Nonce-based CSP, HSTS, frame-ancestors none, no `x-powered-by` — verified over HTTP |
 | Design system | Light and dark tokens, one accent, cards, skeletons, empty and error states |
 | **Auth and permissions suite — 34 tests** | **Passing on the application role, not a privileged one** |
-| **HTTP smoke suite — 40 checks** | **Passing against a running server with curl and a real browser** |
+| **HTTP smoke suite — 62 checks** | **Passing against a running server with curl and a real browser** |
+| Password reset | Single-use hashed token, 30-minute expiry, per-address throttle, kills every session |
+| Change password in session | Keeps the current device, signs out the rest |
+| Staff invitations | Administrators never set another person's password; the invitee does |
+| Invitation safety | Single-use, atomic claim (two racing accepts cannot both win), 7-day expiry, platform roles and foreign branches refused |
+| Cross-gym invitations | Joining a second gym never resets an existing account's password |
+| Two-factor enrolment | Two-step: nothing switches on until a code from the secret verifies |
+| Recovery codes | Ten, shown once, stored hashed, single-use |
+| Disabling two-factor | Requires the password; forbidden entirely for platform administrators |
+| Member login by one-time code | Members need no password; the same phone at two gyms is two different people |
+| Staff administration | List, invite, suspend, change role — with the last-owner and self-suspension guards |
+| Suspension cuts sessions | Both for a staff member and for a whole gym, immediately |
+| Platform console | Gym counts, MRR and ARR from the platform ledger, gym list, suspend and reactivate |
+| Platform support access | Demands a written reason and writes an audit row the gym owner can see |
+| Transactional email adapter | Provider behind an interface; with none configured, messages go to the log rather than nowhere |
+| **Account flows suite — 30 tests** | **Passing on the application role** |
 
 ### What the isolation suite actually proves
 
@@ -68,20 +83,22 @@ Acting as Gym A, against Gym B's real record ids:
 
 ## In progress
 
+Phase 1 is functionally complete. What remains in it is deployment, which is
+blocked on credentials.
+
 | Item | Note |
 | --- | --- |
-| Member management | Registration, search, filters, profile, bulk import — Phase 2 |
-| Membership engine | Plans, sell, renew, freeze, transfer — Phase 2 |
+| First deployment to Hostinger over HTTPS | Blocked: needs a database connection string and a GitHub repository |
 
 ---
 
-## Pending — this phase
+## Next — Phase 2
 
-- Password reset and staff invitation flows (tokens and hashing are built; the screens are not)
-- MFA enrolment screen (TOTP, recovery codes and verification are built and tested)
-- Member OTP login (contracts defined; the flow is not built)
-- Platform console shell for Super Admin
-- First deployment to Hostinger over HTTPS
+- Member registration, search, filters, profile and bulk import
+- Membership plans, selling, renewal, freeze, extension, transfer
+- QR attendance with subscription validation at the door
+- Payments, GST invoices and Razorpay in test mode
+- The dashboard's eight charts and its configurable date filter
 
 ---
 
@@ -133,6 +150,14 @@ Recorded because each one says something about where the bugs actually are.
 ---
 
 ## Changelog
+
+**17 November 2026 — Phase 1 complete**
+Password reset, staff invitations, two-factor enrolment, member one-time-code
+login, staff administration, the platform console and a transactional email
+adapter. A `verification_tokens` table for every single-use token, outside
+row-level security for the same reason sessions are, and documented as such.
+166 checks passing: 104 tests and 62 HTTP checks. Driven through a real
+browser with no JavaScript errors on any screen.
 
 **17 November 2026 — later**
 Permission engine, authentication, tenant provisioning and the Next.js

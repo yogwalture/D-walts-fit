@@ -2941,3 +2941,54 @@ model DataRequest {
   @@index([organizationId, status])
   @@map("data_requests")
 }
+
+// ===========================================================================
+//  VERIFICATION TOKENS
+//
+//  One table for every single-use token the product issues: password resets,
+//  staff invitations, email verification and member one-time codes.
+//
+//  Like `sessions`, this sits outside row-level security by necessity — a
+//  person accepting an invitation or resetting a password has no session and
+//  no tenant yet, so there is no context to scope by. The compensating
+//  controls are that only the token's SHA-256 is stored, every token is
+//  single-use, every token expires, and attempts are counted.
+// ===========================================================================
+
+enum VerificationTokenType {
+  PASSWORD_RESET
+  STAFF_INVITATION
+  EMAIL_VERIFICATION
+  MEMBER_OTP
+}
+
+model VerificationToken {
+  id        String                @id @default(uuid(7)) @db.Uuid
+  type      VerificationTokenType
+  tokenHash String                @unique
+
+  /// Who it is for. Email is always present; the ids are set where known.
+  email          String
+  userId         String? @db.Uuid
+  organizationId String? @db.Uuid
+  memberId       String? @db.Uuid
+  /// Role to grant on acceptance, for invitations.
+  roleId         String? @db.Uuid
+  branchIds      String[] @default([])
+
+  /// Short codes (member OTP) are guessable, so attempts are capped.
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5)
+
+  expiresAt  DateTime  @db.Timestamptz(3)
+  consumedAt DateTime? @db.Timestamptz(3)
+
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  createdByUserId String?  @db.Uuid
+  ipAddress       String?
+
+  @@index([email, type])
+  @@index([expiresAt])
+  @@index([organizationId, type])
+  @@map("verification_tokens")
+}

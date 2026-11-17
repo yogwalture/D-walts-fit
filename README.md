@@ -27,8 +27,10 @@ project's architecture document.
 | Tenant isolation | 79 tables under forced row-level security, 79 policies |
 | Permission registry | 140 permissions, 7 system roles seeded |
 | Authentication | Argon2id, database sessions, TOTP, lockout, organization switching |
+| Account flows | Password reset, staff invitations, two-factor enrolment, member one-time-code login |
+| Administration | Staff management, the platform console, audited support access |
 | Web application | Next.js 15 — marketing page, login, gym registration, permission-aware portal |
-| Tests | **114 passing**: 40 isolation, 34 auth and permissions, 40 HTTP checks |
+| Tests | **166 passing**: 40 isolation, 34 auth and permissions, 30 account flows, 62 HTTP checks |
 
 ---
 
