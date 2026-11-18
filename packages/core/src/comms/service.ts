@@ -862,3 +862,300 @@ export async function listCampaigns(
     }));
   });
 }
+
+// ------------------------------------------------------------- receipts ---
+
+export interface WebhookOutcome {
+  statusUpdates: number;
+  optOuts: number;
+  unknownTenant: boolean;
+}
+
+/**
+ * Applies what WhatsApp tells us after the fact.
+ *
+ * Two things arrive here. Delivery and read receipts, which turn a SENT
+ * into DELIVERED — the difference between "we sent it" and "it arrived" is
+ * the difference between blaming the member and blaming the number.
+ *
+ * And inbound messages, which in practice are mostly STOP. An opt-out
+ * arriving this way is honoured immediately and for every later send,
+ * because a person who asked to be left alone has asked once.
+ */
+export async function applyWhatsappWebhook(payload: any): Promise<WebhookOutcome> {
+  const db = getJobsClient();
+  const outcome: WebhookOutcome = { statusUpdates: 0, optOuts: 0, unknownTenant: false };
+
+  for (const entry of payload?.entry ?? []) {
+    for (const change of entry?.changes ?? []) {
+      const value = change?.value;
+      if (!value) continue;
+
+      // The tenant comes from the number Meta delivered to, resolved
+      // against our own records — never from anything in the body a sender
+      // could choose.
+      const phoneNumberId = value?.metadata?.phone_number_id;
+      const settings = phoneNumberId
+        ? await db.whatsappSetting.findFirst({
+            where: { phoneNumberId: String(phoneNumberId) },
+            select: { organizationId: true },
+          })
+        : null;
+
+      if (!settings) {
+        outcome.unknownTenant = true;
+        continue;
+      }
+
+      for (const status of value.statuses ?? []) {
+        const id = status?.id;
+        if (!id) continue;
+
+        const message = await db.message.findFirst({
+          where: { providerMessageId: String(id), organizationId: settings.organizationId },
+          select: { id: true, status: true },
+        });
+        if (!message) continue;
+
+        const at = status.timestamp ? new Date(Number(status.timestamp) * 1000) : new Date();
+
+        if (status.status === 'delivered') {
+          await db.message.update({
+            where: { id: message.id },
+            data: { status: 'DELIVERED', deliveredAt: at },
+          });
+          outcome.statusUpdates += 1;
+        } else if (status.status === 'read') {
+          await db.message.update({
+            where: { id: message.id },
+            data: { status: 'READ', readAt: at, deliveredAt: at },
+          });
+          outcome.statusUpdates += 1;
+        } else if (status.status === 'failed') {
+          await db.message.update({
+            where: { id: message.id },
+            data: {
+              status: 'FAILED',
+              failedAt: at,
+              errorCode: String(status.errors?.[0]?.code ?? 'PROVIDER_FAILED'),
+              errorMessage: String(
+                status.errors?.[0]?.title ?? 'WhatsApp could not deliver this message.',
+              ),
+            },
+          });
+          outcome.statusUpdates += 1;
+        }
+      }
+
+      for (const inbound of value.messages ?? []) {
+        const text = String(inbound?.text?.body ?? '').trim().toUpperCase();
+        if (!/^(STOP|UNSUBSCRIBE|OPT ?OUT)$/.test(text)) continue;
+
+        const from = String(inbound?.from ?? '');
+        if (!from) continue;
+
+        // Match on the last ten digits: we store a local number, Meta sends
+        // an international one.
+        const local = from.slice(-10);
+        const member = await db.member.findFirst({
+          where: { organizationId: settings.organizationId, phone: { endsWith: local } },
+          select: { id: true },
+        });
+
+        if (member) {
+          await recordInboundOptOut({
+            organizationId: settings.organizationId,
+            subjectType: 'MEMBER',
+            subjectId: member.id,
+            channel: 'WHATSAPP',
+            source: `Replied ${text} on WhatsApp`,
+          });
+          outcome.optOuts += 1;
+          continue;
+        }
+
+        const lead = await db.lead.findFirst({
+          where: { organizationId: settings.organizationId, phone: { endsWith: local } },
+          select: { id: true },
+        });
+        if (lead) {
+          await recordInboundOptOut({
+            organizationId: settings.organizationId,
+            subjectType: 'LEAD',
+            subjectId: lead.id,
+            channel: 'WHATSAPP',
+            source: `Replied ${text} on WhatsApp`,
+          });
+          outcome.optOuts += 1;
+        }
+      }
+    }
+  }
+
+  return outcome;
+}
+
+// ----------------------------------------------------------- automations ---
+
+export interface ReminderRun {
+  organizations: number;
+  queued: number;
+  skipped: number;
+  /** Gyms with no approved expiry template, which is why nothing went. */
+  withoutTemplate: number;
+}
+
+/**
+ * The expiry reminders, which are the reason a gym buys any of this.
+ *
+ * Run from cron, once a day. A membership that lapses unnoticed is revenue
+ * a gym never sees again, and the reminder nobody sent is the commonest
+ * reason it lapses.
+ *
+ * Idempotent by construction: the key is the member, the subscription and
+ * the day, so running the cron twice cannot message anybody twice.
+ */
+export async function queueExpiryReminders(
+  options: { daysAhead?: number; organizationId?: string } = {},
+): Promise<ReminderRun> {
+  const db = getJobsClient();
+  const daysAhead = options.daysAhead ?? 7;
+
+  const run: ReminderRun = { organizations: 0, queued: 0, skipped: 0, withoutTemplate: 0 };
+
+  const organizations = await db.organization.findMany({
+    where: {
+      status: { in: ['ACTIVE', 'TRIAL'] },
+      deletedAt: null,
+      ...(options.organizationId ? { id: options.organizationId } : {}),
+    },
+    select: { id: true },
+  });
+
+  for (const organization of organizations) {
+    const template = await db.notificationTemplate.findFirst({
+      where: {
+        organizationId: organization.id,
+        channel: 'WHATSAPP',
+        isActive: true,
+        approvalStatus: 'APPROVED',
+        providerTemplateName: { not: null },
+        key: { contains: 'expir' },
+      },
+      select: { id: true, body: true, category: true, channel: true },
+    });
+
+    if (!template) {
+      run.withoutTemplate += 1;
+      continue;
+    }
+
+    const settings = await db.orgSetting.findFirst({
+      where: { organizationId: organization.id },
+      select: { timezone: true },
+    });
+    const day = businessDayRange(settings?.timezone ?? 'Asia/Kolkata');
+    const target = new Date(day.date.getTime() + daysAhead * 86_400_000);
+    const targetIso = target.toISOString().slice(0, 10);
+
+    const expiring = await db.subscription.findMany({
+      where: {
+        organizationId: organization.id,
+        status: 'ACTIVE',
+        deletedAt: null,
+        endDate: target,
+      },
+      select: {
+        id: true,
+        endDate: true,
+        member: {
+          select: { id: true, firstName: true, lastName: true, phone: true, memberCode: true },
+        },
+        plan: { select: { name: true } },
+      },
+    });
+
+    if (expiring.length === 0) continue;
+    run.organizations += 1;
+
+    const job = await db.messageJob.create({
+      data: {
+        organizationId: organization.id,
+        name: `Expiry reminders — ${targetIso}`,
+        channel: template.channel,
+        category: template.category,
+        templateId: template.id,
+        status: 'RUNNING',
+        startedAt: new Date(),
+      },
+      select: { id: true },
+    });
+
+    let queued = 0;
+    let skipped = 0;
+
+    for (const subscription of expiring) {
+      const allowed = await mayReceive(db, {
+        subjectType: 'MEMBER',
+        subjectId: subscription.member.id,
+        channel: template.channel,
+        category: template.category,
+      });
+
+      if (!allowed || !subscription.member.phone) {
+        skipped += 1;
+        continue;
+      }
+
+      const name = `${subscription.member.firstName} ${subscription.member.lastName ?? ''}`.trim();
+      const values = {
+        name,
+        memberName: name,
+        firstName: subscription.member.firstName,
+        memberCode: subscription.member.memberCode,
+        planName: subscription.plan.name,
+        expiryDate: subscription.endDate.toISOString().slice(0, 10),
+      };
+
+      try {
+        await db.message.create({
+          data: {
+            organizationId: organization.id,
+            messageJobId: job.id,
+            templateId: template.id,
+            channel: template.channel,
+            category: template.category,
+            recipientType: 'MEMBER',
+            recipientId: subscription.member.id,
+            toAddress: subscription.member.phone,
+            payload: values as never,
+            renderedBody: renderTemplate(template.body, values),
+            status: 'QUEUED',
+            // The member, the subscription and the day: running the cron
+            // twice cannot message anybody twice.
+            idempotencyKey: `expiry:${subscription.id}:${targetIso}`,
+          },
+        });
+        queued += 1;
+      } catch {
+        // The unique key rejected it, which means it was already queued
+        // today. That is the guard working, not an error.
+        skipped += 1;
+      }
+    }
+
+    await db.messageJob.update({
+      where: { id: job.id },
+      data: {
+        recipientCount: queued + skipped,
+        skippedCount: skipped,
+        ...(queued === 0 ? { status: 'COMPLETED' as never, completedAt: new Date() } : {}),
+      },
+    });
+
+    run.queued += queued;
+    run.skipped += skipped;
+  }
+
+  return run;
+}

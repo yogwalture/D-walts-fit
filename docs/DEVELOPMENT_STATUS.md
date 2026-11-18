@@ -177,7 +177,13 @@ only when real credentials have been used and a real call has succeeded.
 | Opt-outs checked twice | At queue time and again at send time, because a STOP arriving in between is exactly when it arrives |
 | Marketing is opt-in, utility is opt-out | Silence is consent for an invoice, not for an offer |
 | Sending is a bounded cron drain | No workers on the deploy target; the batch fits inside the 120-second request limit and one bad row cannot abandon it |
-| **Messaging suite — 24 tests** | **Including that a timeout is retried and a duplicate send is not** |
+| Delivery receipts | A sent message becomes delivered or read from WhatsApp's own callback — "we sent it" and "it arrived" are different claims |
+| STOP is honoured on arrival | An inbound opt-out applies across categories: somebody who asked to be left alone asked once |
+| The webhook verifies the raw body | Signed with the Meta app secret and checked before anything parses it, like the Razorpay one |
+| The tenant comes from our records | Resolved from the phone number id we stored, never from anything in the payload a sender could choose |
+| Expiry reminders | A daily cron run, keyed on the member, the subscription and the day, so firing twice cannot message anybody twice |
+| One environment file | The web app reads the repository's `.env` rather than keeping its own copy — two files that drift is a key rotated in one place and still failing in the other |
+| **Messaging suite — 30 tests** | **Including that a timeout is retried, a duplicate send is not, and a forged receipt is refused** |
 
 ### What the isolation suite actually proves
 

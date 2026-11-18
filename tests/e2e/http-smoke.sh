@@ -689,6 +689,49 @@ else
   printf '  - cron drain checks skipped (set CRON_SECRET to cover them)\n'
 fi
 
+# --------------------------------------------------- the WhatsApp webhook ---
+printf '\nthe WhatsApp webhook\n'
+
+# The handshake Meta performs when a gym subscribes the callback.
+code=$(curl -s -o /dev/null -w '%{http_code}' \
+  "$BASE/api/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=abc")
+check "a wrong verify token is refused" "403" "$code"
+
+# Receipts and STOP replies are signed by Meta over the raw body.
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/webhooks/whatsapp" \
+  -H 'content-type: application/json' -d '{"entry":[]}')
+check "an unsigned receipt is refused" "400" "$code"
+
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/webhooks/whatsapp" \
+  -H 'content-type: application/json' -H 'x-hub-signature-256: sha256=deadbeef' \
+  -d '{"entry":[]}')
+check "and so is a forged signature" "400" "$code"
+
+if [ -n "${WHATSAPP_APP_SECRET:-}" ]; then
+  WH_BODY='{"entry":[{"changes":[{"value":{"metadata":{"phone_number_id":"0"},"statuses":[]}}]}]}'
+  WH_SIG=$(printf '%s' "$WH_BODY" | openssl dgst -sha256 -hmac "$WHATSAPP_APP_SECRET" | awk '{print $2}')
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/webhooks/whatsapp" \
+    -H 'content-type: application/json' -H "x-hub-signature-256: sha256=$WH_SIG" -d "$WH_BODY")
+  check "a correctly signed receipt is accepted" "200" "$code"
+
+  # The attack that matters: sign a real body, then change it in flight.
+  TAMPERED='{"entry":[{"changes":[{"value":{"metadata":{"phone_number_id":"999"},"statuses":[]}}]}]}'
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/webhooks/whatsapp" \
+    -H 'content-type: application/json' -H "x-hub-signature-256: sha256=$WH_SIG" -d "$TAMPERED")
+  check "a body altered after signing is refused" "400" "$code"
+else
+  printf '  - signature path skipped (set WHATSAPP_APP_SECRET to cover it)\n'
+fi
+
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/cron/reminders")
+check "the reminder run needs the cron secret" "401" "$code"
+
+if [ -n "${CRON_SECRET:-}" ]; then
+  body=$(curl -s -X POST "$BASE/api/cron/reminders" -H "authorization: Bearer ${CRON_SECRET}")
+  has "with it, the reminder run reports what it queued" "$body" '"queued"'
+  has "and which gyms have no template to send with" "$body" '"withoutTemplate"'
+fi
+
 # ------------------------------------------------------------ branches ---
 printf '\nbranches\n'
 

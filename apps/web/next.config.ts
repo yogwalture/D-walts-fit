@@ -1,4 +1,15 @@
+import { config as loadEnv } from 'dotenv';
 import type { NextConfig } from 'next';
+
+/**
+ * One environment file for the whole repository.
+ *
+ * Next reads `.env*` from the app directory, so without this the app would
+ * need its own copy of every secret — two files that drift, and a key
+ * rotated in one place that still fails in the other. Anything already set
+ * in the real environment wins, which is what production does.
+ */
+loadEnv({ path: new URL('../../.env', import.meta.url).pathname });
 
 const config: NextConfig = {
   reactStrictMode: true,

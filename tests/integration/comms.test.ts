@@ -37,6 +37,8 @@ import {
   setPreference,
   recordInboundOptOut,
   getWhatsappSettings,
+  applyWhatsappWebhook,
+  queueExpiryReminders,
   encryptSecret,
   decryptSecret,
   secretHint,
@@ -517,6 +519,225 @@ describe('sending', () => {
     // messages is not, so "running" means running.
     expect(done.every((c) => c.status === 'COMPLETED')).toBe(true);
     expect(open.every((c) => c.status !== 'COMPLETED')).toBe(true);
+  });
+});
+
+describe('what WhatsApp tells us afterwards', () => {
+  async function sendOne(): Promise<{ messageId: string; providerId: string }> {
+    const template = await createTemplate(ctx, owner, {
+      name: `Receipts ${unique()}`,
+      channel: 'WHATSAPP',
+      body: 'Hello {{memberName}}.',
+      providerTemplateName: 'receipts_v1',
+    });
+    await updateTemplate(ctx, owner, template.id, { approvalStatus: 'APPROVED' });
+
+    await setPreference(ctx, owner, {
+      subjectType: 'MEMBER',
+      subjectId: memberIds[2]!,
+      channel: 'WHATSAPP',
+      category: 'UTILITY',
+      optedIn: true,
+    });
+
+    const job = await queueCampaign(ctx, owner, {
+      name: `Receipt run ${unique()}`,
+      templateId: template.id,
+      audience: { kind: 'selected', memberIds: [memberIds[2]!] },
+    });
+
+    const providerId = `wamid.R${unique()}`;
+    const integrations = await import('@gym/integrations');
+    const spy = vi
+      .spyOn(integrations, 'sendWhatsappTemplate')
+      .mockResolvedValue({ ok: true, providerMessageId: providerId });
+    await drainMessageQueue({ organizationId: gym.organizationId });
+    spy.mockRestore();
+
+    const row = await db.message.findFirstOrThrow({ where: { providerMessageId: providerId } });
+    return { messageId: row.id, providerId };
+  }
+
+  it('turns a sent message into a delivered one', async () => {
+    const { messageId, providerId } = await sendOne();
+
+    await applyWhatsappWebhook({
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                metadata: { phone_number_id: '1234567890' },
+                statuses: [
+                  { id: providerId, status: 'delivered', timestamp: '1800000000' },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    // "We sent it" and "it arrived" are the difference between blaming the
+    // member and blaming the number.
+    const row = await db.message.findUniqueOrThrow({ where: { id: messageId } });
+    expect(row.status).toBe('DELIVERED');
+    expect(row.deliveredAt).not.toBeNull();
+  });
+
+  it('records a provider failure against the message', async () => {
+    const { messageId, providerId } = await sendOne();
+
+    await applyWhatsappWebhook({
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                metadata: { phone_number_id: '1234567890' },
+                statuses: [
+                  {
+                    id: providerId,
+                    status: 'failed',
+                    errors: [{ code: 131026, title: 'Message undeliverable' }],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const row = await db.message.findUniqueOrThrow({ where: { id: messageId } });
+    expect(row.status).toBe('FAILED');
+    expect(row.errorMessage).toMatch(/undeliverable/i);
+  });
+
+  it('honours a STOP reply immediately', async () => {
+    const member = await db.member.findUniqueOrThrow({ where: { id: memberIds[2]! } });
+
+    const outcome = await applyWhatsappWebhook({
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                metadata: { phone_number_id: '1234567890' },
+                messages: [{ from: `91${member.phone}`, text: { body: 'stop' } }],
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(outcome.optOuts).toBe(1);
+
+    const preferences = await db.communicationPreference.findMany({
+      where: { subjectId: memberIds[2]!, channel: 'WHATSAPP' },
+    });
+    // Across categories, not just the one they happened to receive: a
+    // person who asked to be left alone has asked once.
+    expect(preferences.length).toBeGreaterThanOrEqual(2);
+    expect(preferences.every((p) => p.optedIn === false)).toBe(true);
+  });
+
+  it('ignores a receipt for a number that is not ours', async () => {
+    const outcome = await applyWhatsappWebhook({
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                metadata: { phone_number_id: '9999999999' },
+                statuses: [{ id: 'wamid.SOMEONEELSE', status: 'delivered' }],
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    // The tenant comes from our own records, never from the payload.
+    expect(outcome.unknownTenant).toBe(true);
+    expect(outcome.statusUpdates).toBe(0);
+  });
+});
+
+describe('expiry reminders', () => {
+  it('reports a gym that has no approved expiry template', async () => {
+    const email = `reminder.${unique()}@example.com`;
+    createdEmails.push(email);
+
+    const bare = await registerGym({
+      gymName: `Bare Gym ${unique()}`,
+      ownerName: 'Bare Owner',
+      email,
+      phone: '9876700000',
+      password: 'correct horse battery staple 47',
+      planKey: 'PROFESSIONAL',
+      acceptedTerms: true,
+    });
+    createdOrgIds.push(bare.organizationId);
+
+    const run = await queueExpiryReminders({
+      organizationId: bare.organizationId,
+      daysAhead: 7,
+    });
+
+    // Counted rather than silently skipped: "nothing went out" and "there
+    // was nothing to send with" are different problems with different fixes.
+    expect(run.withoutTemplate).toBe(1);
+    expect(run.queued).toBe(0);
+  });
+
+  it('queues one reminder per expiring membership, and never twice', async () => {
+    const template = await createTemplate(ctx, owner, {
+      key: 'membership_expiring_soon',
+      name: 'Expiring soon',
+      channel: 'WHATSAPP',
+      category: 'UTILITY',
+      body: 'Hello {{memberName}}, your {{planName}} ends on {{expiryDate}}.',
+      providerTemplateName: 'expiring_soon',
+    });
+    await updateTemplate(ctx, owner, template.id, { approvalStatus: 'APPROVED' });
+
+    for (const id of memberIds) {
+      await setPreference(ctx, owner, {
+        subjectType: 'MEMBER',
+        subjectId: id,
+        channel: 'WHATSAPP',
+        category: 'UTILITY',
+        optedIn: true,
+      });
+    }
+
+    // Move one membership to exactly seven days out.
+    const sevenDays = new Date(Date.now() + 7 * 86_400_000);
+    sevenDays.setUTCHours(0, 0, 0, 0);
+    await db.subscription.updateMany({
+      where: { memberId: memberIds[0]!, organizationId: gym.organizationId },
+      data: { endDate: sevenDays, status: 'ACTIVE' },
+    });
+
+    const first = await queueExpiryReminders({
+      organizationId: gym.organizationId,
+      daysAhead: 7,
+    });
+    expect(first.queued).toBe(1);
+
+    // A scheduler that fires twice must not message anybody twice.
+    const second = await queueExpiryReminders({
+      organizationId: gym.organizationId,
+      daysAhead: 7,
+    });
+    expect(second.queued).toBe(0);
+
+    const messages = await db.message.findMany({
+      where: { organizationId: gym.organizationId, recipientId: memberIds[0]! },
+    });
+    expect(messages.filter((m) => m.idempotencyKey?.startsWith('expiry:'))).toHaveLength(1);
   });
 });
 
