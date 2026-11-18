@@ -85,6 +85,18 @@ page.on('console', (message) => {
   consoleErrors.push(text);
 });
 
+/**
+ * Error responses this run provokes on purpose.
+ *
+ * A refusal the product is supposed to give — a duplicate enquiry answered
+ * with 409 so the screen can offer "record it anyway" — is working software,
+ * not a broken request. Each is declared at the point it is provoked and
+ * consumed once, so an unexpected second one still fails the run.
+ */
+const expectedResponses = [];
+const expectStatus = (status, method, fragment) =>
+  expectedResponses.push({ status, method, fragment });
+
 page.on('response', (response) => {
   const status = response.status();
   if (status < 400) return;
@@ -93,7 +105,17 @@ page.on('response', (response) => {
   // A 401 on an API probe is a deliberate part of the flow; an icon that is
   // not there is cosmetic. Everything else is a real broken request.
   if (/favicon|\.ico$|icon\.svg/.test(url)) return;
-  badResponses.push(`${status} ${response.request().method()} ${url.replace(BASE, '')}`);
+
+  const method = response.request().method();
+  const index = expectedResponses.findIndex(
+    (e) => e.status === status && e.method === method && url.includes(e.fragment),
+  );
+  if (index !== -1) {
+    expectedResponses.splice(index, 1);
+    return;
+  }
+
+  badResponses.push(`${status} ${method} ${url.replace(BASE, '')}`);
 });
 
 // A prefetch cancelled by the navigation that followed it is normal and is
@@ -110,7 +132,15 @@ try {
   await page.fill('#phone', gym.phone);
   await page.fill('#password', gym.password);
 
-  const terms = page.locator('input[type="checkbox"]').first();
+  // The plan is chosen at signup, because it decides what the gym can use
+  // during the trial. Growth is what this run exercises: it includes the CRM.
+  check(
+    'the plan choice is on the form',
+    (await page.locator('input[name="planKey"]').count()) >= 3,
+  );
+  await page.check('input[name="planKey"][value="GROWTH"]');
+
+  const terms = page.locator('input[type="checkbox"]:not([name="planKey"])').first();
   if (await terms.count()) await terms.check();
 
   await page.click('button[type="submit"]');
@@ -675,6 +705,164 @@ try {
     'the invited trainer appears on the team',
     (await page.getByText('Suresh Pawar').count()) > 0,
   );
+
+  // ----------------------------------------------------------- enquiries ---
+  section('Enquiries');
+  await page.goto(`${BASE}/crm/leads`, { waitUntil: 'domcontentloaded' });
+  check(
+    'the enquiries page renders',
+    (await page.getByRole('heading', { name: 'Enquiries' }).count()) > 0,
+  );
+
+  await page.getByRole('button', { name: 'Record an enquiry' }).click();
+  await page.fill('#lead-fullName', 'Anita Shah');
+  await page.fill('#lead-phone', '9830700001');
+  await page.getByRole('button', { name: 'Record enquiry' }).click();
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Anita Shah'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('an enquiry is recorded', true);
+
+  // The duplicate warning, which exists because families share numbers.
+  // The 409 is the product working: declared here so the network check
+  // treats it as intended rather than as a broken request.
+  expectStatus(409, 'POST', '/api/v1/crm/leads');
+  await page.getByRole('button', { name: 'Record an enquiry' }).click();
+  await page.fill('#lead-fullName', 'Anita Again');
+  await page.fill('#lead-phone', '9830700001');
+  await page.getByRole('button', { name: 'Record enquiry' }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('already an open enquiry'),
+    undefined,
+    { timeout: 15_000 },
+  );
+  check('a repeated number warns rather than blocking', true);
+  check(
+    'and offers to record it anyway, for a shared number',
+    (await page.getByText(/families and couples/i).count()) > 0,
+  );
+  await page.getByRole('button', { name: 'Cancel' }).first().click();
+
+  // Open the enquiry and log a call — the step the whole design is built on.
+  await page.getByText('Anita Shah').first().click();
+  await page.waitForURL(/\/crm\/leads\/[0-9a-f-]{36}/, { timeout: 20_000 });
+  const leadUrl = page.url();
+  check('the enquiry opens', (await page.getByText('What happened?').count()) > 0);
+
+  await page.getByRole('button', { name: 'Log a call' }).click();
+  await page.fill('#outcome', 'Comparing us with the gym near the station');
+  await page.getByRole('button', { name: 'Next week' }).click();
+  await page.getByRole('button', { name: 'Save' }).click();
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Comparing us'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('the call is logged against the enquiry', true);
+
+  const followUp = await page.evaluate(async (url) => {
+    const id = url.split('/').pop();
+    const r = await fetch(`/api/v1/crm/leads/${id}`);
+    const body = await r.json();
+    return body.data?.nextFollowUpAt ?? null;
+  }, leadUrl);
+
+  const daysOut = followUp
+    ? Math.round((new Date(followUp).getTime() - Date.now()) / 86_400_000)
+    : null;
+  check(
+    'and the next follow-up moved in the same action',
+    daysOut !== null && daysOut >= 6 && daysOut <= 8,
+    String(daysOut),
+  );
+
+  // Convert, which must create the member and link both ways.
+  await page.getByRole('button', { name: 'They joined' }).click();
+  await page.getByRole('button', { name: /Create their member record/ }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Now member'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('converting creates the member', true);
+
+  const converted = await page.evaluate(async () => {
+    const r = await fetch('/api/v1/members?search=9830700001');
+    const body = await r.json();
+    return body.data?.[0] ?? null;
+  });
+  check('who is on the members list', converted !== null, JSON.stringify(converted));
+  check(
+    'and starts inactive, since no membership is sold yet',
+    converted?.status === 'INACTIVE',
+    String(converted?.status),
+  );
+
+  // --------------------------------------------------------- the plan wall ---
+  // A second gym, on Starter, which does not include the CRM. What it meets
+  // there decides whether a plan boundary reads as a sale or as a bug: the
+  // page must explain the plan, and the sidebar must still show the area so
+  // the gym knows it exists.
+  section('The plan boundary');
+  const starterPage = await context.newPage();
+  const starterSuffix = Date.now();
+  await starterPage.goto(`${BASE}/register-gym`, { waitUntil: 'domcontentloaded' });
+  await starterPage.fill('#gymName', `Starter Fitness ${starterSuffix}`);
+  await starterPage.fill('#ownerName', 'Rakesh Jadhav');
+  await starterPage.fill('#email', `starter.${starterSuffix}@example.com`);
+  await starterPage.fill('#phone', '9876500011');
+  await starterPage.fill('#password', gym.password);
+  await starterPage.check('input[name="planKey"][value="STARTER"]');
+  const starterTerms = starterPage
+    .locator('input[type="checkbox"]:not([name="planKey"])')
+    .first();
+  if (await starterTerms.count()) await starterTerms.check();
+  await starterPage.click('button[type="submit"]');
+  await starterPage.waitForURL(/\/dashboard/, { timeout: 30_000 });
+  check('a gym can register on Starter', starterPage.url().includes('/dashboard'));
+
+  check(
+    'the sidebar still shows Enquiries, marked locked',
+    (await starterPage.getByText('Locked').count()) > 0,
+  );
+
+  const lockResponse = await starterPage.goto(`${BASE}/crm/leads`, {
+    waitUntil: 'domcontentloaded',
+  });
+  check(
+    'the locked page answers 200, not 500',
+    lockResponse.status() === 200,
+    String(lockResponse.status()),
+  );
+  const lockText = await starterPage.evaluate(() => document.body.innerText);
+  // innerText applies text-transform, so the label arrives upper-cased.
+  check('it says the plan is what is missing', /not on your plan/i.test(lockText));
+  check(
+    'and names the plan that includes it, with its price',
+    lockText.includes('Growth') && /₹\s?2,999/.test(lockText),
+    lockText.slice(0, 160),
+  );
+  check(
+    'with no button that cannot do anything',
+    !/See plans|Upgrade now/.test(lockText),
+  );
+
+  // The API must refuse it the same way, with a code the mobile app can read.
+  const lockedApi = await starterPage.evaluate(async () => {
+    const r = await fetch('/api/v1/crm/leads');
+    return { status: r.status, body: await r.json().catch(() => null) };
+  });
+  check(
+    'the API refuses with FEATURE_NOT_IN_PLAN',
+    lockedApi.body?.error?.code === 'FEATURE_NOT_IN_PLAN',
+    JSON.stringify(lockedApi),
+  );
+  expectStatus(403, 'GET', '/api/v1/crm/leads');
+  await starterPage.close();
 
   // ------------------------------------------------------------- the CSP ---
   section('Security headers');

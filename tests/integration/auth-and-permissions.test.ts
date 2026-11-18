@@ -16,6 +16,9 @@ import {
   revokeSession,
   revokeAllSessionsForUser,
   resolvePermissions,
+  featureLock,
+  cheapestPlanWithFeature,
+  listSignupPlans,
   requirePermission,
   can,
   scopeOf,
@@ -604,6 +607,100 @@ describe('plan feature gating', () => {
     expect(can(onStarter, 'members.member.create')).toBe(true);
     expect(can(onStarter, 'finance.payment.create')).toBe(true);
     expect(can(onStarter, 'attendance.checkin.create')).toBe(true);
+  });
+
+  it('says the plan is what is missing, not the role', async () => {
+    const owner = await db.role.findFirstOrThrow({
+      where: { organizationId: null, key: 'GYM_OWNER' },
+      include: { permissions: { select: { permissionKey: true, scope: true } } },
+    });
+    const trainer = await db.role.findFirstOrThrow({
+      where: { organizationId: null, key: 'TRAINER' },
+      include: { permissions: { select: { permissionKey: true, scope: true } } },
+    });
+    const starter = await db.platformPlan.findUniqueOrThrow({ where: { key: 'STARTER' } });
+
+    const ownerOnStarter = resolvePermissions({
+      roleKey: 'GYM_OWNER',
+      rolePermissions: owner.permissions,
+      overrides: [],
+      branchIds: [],
+      planFeatures: starter.features,
+      isPlatformAdmin: false,
+    });
+
+    // The owner's role allows it; only the plan is in the way. That is a
+    // locked door, and the product should offer the key.
+    expect(featureLock(ownerOnStarter, 'crm.lead.read')).toBe('crm');
+    expect(() => requirePermission(ownerOnStarter, 'crm.lead.read')).toThrow(
+      /plan does not include enquiry and lead management/,
+    );
+    try {
+      requirePermission(ownerOnStarter, 'crm.lead.read');
+    } catch (error) {
+      expect((error as AppError).code).toBe('FEATURE_NOT_IN_PLAN');
+      expect((error as AppError).status).toBe(403);
+    }
+
+    const trainerOnStarter = resolvePermissions({
+      roleKey: 'TRAINER',
+      rolePermissions: trainer.permissions,
+      overrides: [],
+      branchIds: [],
+      planFeatures: starter.features,
+      isPlatformAdmin: false,
+    });
+
+    // A trainer is not held back by the plan: the role never had it. Telling
+    // them to upgrade would be nonsense — the gym already pays for people who
+    // cannot see enquiries.
+    expect(featureLock(trainerOnStarter, 'finance.payment.refund')).toBeNull();
+    try {
+      requirePermission(trainerOnStarter, 'finance.payment.refund');
+    } catch (error) {
+      expect((error as AppError).code).toBe('PERMISSION_DENIED');
+    }
+  });
+
+  it('does not mark a feature locked once the plan includes it', async () => {
+    const owner = await db.role.findFirstOrThrow({
+      where: { organizationId: null, key: 'GYM_OWNER' },
+      include: { permissions: { select: { permissionKey: true, scope: true } } },
+    });
+    const growth = await db.platformPlan.findUniqueOrThrow({ where: { key: 'GROWTH' } });
+
+    const resolved = resolvePermissions({
+      roleKey: 'GYM_OWNER',
+      rolePermissions: owner.permissions,
+      overrides: [],
+      branchIds: [],
+      planFeatures: growth.features,
+      isPlatformAdmin: false,
+    });
+
+    expect(featureLock(resolved, 'crm.lead.read')).toBeNull();
+    expect(resolved.lockedByPlan['crm.lead.read']).toBeUndefined();
+    // Growth stops short of the video library, and says so.
+    expect(featureLock(resolved, 'content.video.manage')).toBe('video');
+  });
+
+  it('names the cheapest plan that would unlock a feature', async () => {
+    const crm = await cheapestPlanWithFeature('crm');
+    expect(crm?.key).toBe('GROWTH');
+
+    const video = await cheapestPlanWithFeature('video');
+    expect(video?.key).toBe('PROFESSIONAL');
+
+    // Not a feature any plan sells: the prompt must not invent a tier.
+    expect(await cheapestPlanWithFeature('teleportation')).toBeNull();
+  });
+
+  it('offers signup plans without the quoted tier', async () => {
+    const plans = await listSignupPlans();
+    expect(plans.map((p) => p.key)).toEqual(['STARTER', 'GROWTH', 'PROFESSIONAL']);
+    expect(plans[0]!.trialDays).toBeGreaterThan(0);
+    // Prices come from the table, so the form cannot drift from the pricing.
+    expect(plans[1]!.monthlyPrice).toBeGreaterThan(plans[0]!.monthlyPrice);
   });
 });
 

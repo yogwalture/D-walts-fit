@@ -94,6 +94,12 @@ export interface SessionView {
   role: { key: string; name: string } | null;
   /** Resolved permission keys mapped to their scope. */
   permissions: Record<string, 'ALL' | 'BRANCH' | 'OWN'>;
+  /**
+   * Permissions this role holds but the gym's plan withholds, mapped to the
+   * feature that unlocks them. The sidebar uses it to show a locked area
+   * instead of hiding it.
+   */
+  planLocked: Record<string, string>;
   branchIds: string[];
   /** Every organization this user may switch into. */
   memberships: Array<{ organizationId: string; name: string; slug: string; roleKey: string }>;

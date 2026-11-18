@@ -493,6 +493,7 @@ export async function checkInByBranchQr(
       branchIds: [],
       isPlatformAdmin: false,
       features: new Set<string>(),
+      lockedByPlan: {},
     };
 
     return checkIn(ctx, selfPermissions, {

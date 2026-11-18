@@ -81,6 +81,17 @@ export async function requireSession(nextPath?: string): Promise<SessionView> {
  * API re-checks every permission regardless, because hiding a button is a
  * courtesy and the server is the boundary.
  */
+/**
+ * The feature a permission needs that this gym's plan does not include, or
+ * null. Distinct from `holds` returning false, which also covers "your role
+ * does not allow this" — a dead end rather than a locked door.
+ */
+export function planLock(session: SessionView | null, permission: string): string | null {
+  if (!session) return null;
+  if (permission in session.permissions) return null;
+  return session.planLocked?.[permission] ?? null;
+}
+
 export function holds(session: SessionView | null, permission: string): boolean {
   if (!session) return false;
   if (session.user.isPlatformAdmin && permission.startsWith('platform.')) return true;

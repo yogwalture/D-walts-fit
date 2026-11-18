@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { requireSession, holds } from '@/lib/current-session';
+import { requireSession, holds, planLock } from '@/lib/current-session';
 import { SignOutButton } from '@/components/sign-out-button';
 import { OrganizationSwitcher } from '@/components/organization-switcher';
 
@@ -95,7 +95,7 @@ const NAVIGATION: NavSection[] = [
   {
     heading: 'Growth',
     items: [
-      { href: '/crm/leads', label: 'Leads', permission: 'crm.lead.read', built: false },
+      { href: '/crm/leads', label: 'Enquiries', permission: 'crm.lead.read', built: true },
       {
         href: '/communication/compose',
         label: 'Messages',
@@ -135,11 +135,26 @@ const NAVIGATION: NavSection[] = [
 export default async function GymLayout({ children }: { children: React.ReactNode }) {
   const session = await requireSession('/dashboard');
 
+  /**
+   * Three states per item, not two.
+   *
+   * Hidden: the role does not allow it, or the page does not exist yet.
+   * Open: allowed and built.
+   * Locked: allowed by the role, built, and held back only by the plan — so
+   * it stays in the sidebar with a lock, because a gym cannot ask for a
+   * feature it has never seen, and the page itself explains the plan.
+   */
   const sections = NAVIGATION.map((section) => ({
     ...section,
-    items: section.items.filter(
-      (item) => item.built && (!item.permission || holds(session, item.permission)),
-    ),
+    items: section.items
+      .filter((item) => item.built)
+      .map((item) => ({
+        ...item,
+        locked: item.permission ? planLock(session, item.permission) !== null : false,
+      }))
+      .filter(
+        (item) => item.locked || !item.permission || holds(session, item.permission),
+      ),
   })).filter((section) => section.items.length > 0);
 
   const gymName = session.organization?.branding.displayName ?? session.organization?.name ?? '';
@@ -165,8 +180,19 @@ export default async function GymLayout({ children }: { children: React.ReactNod
               <ul className="space-y-0.5">
                 {section.items.map((item) => (
                   <li key={item.href}>
-                    <Link href={item.href} className="nav-item">
-                      {item.label}
+                    <Link
+                      href={item.href}
+                      className="nav-item flex items-center justify-between gap-2"
+                    >
+                      <span className="truncate">{item.label}</span>
+                      {item.locked && (
+                        <span
+                          className="shrink-0 rounded-full bg-canvas px-1.5 py-0.5 text-[11px] font-medium text-ink-subtle"
+                          title="Included in a higher plan"
+                        >
+                          Locked
+                        </span>
+                      )}
                     </Link>
                   </li>
                 ))}

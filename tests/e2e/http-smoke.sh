@@ -67,7 +67,7 @@ body=$(curl -s -c "$JAR" -X POST "$BASE/api/v1/auth/register" \
   -H 'content-type: application/json' \
   -d "{\"gymName\":\"E2E Fitness $STAMP\",\"ownerName\":\"E2E Owner\",\"email\":\"$EMAIL\",
        \"phone\":\"9876512345\",\"password\":\"$PASSWORD\",\"city\":\"Chhatrapati Sambhajinagar\",
-       \"planKey\":\"STARTER\",\"acceptedTerms\":true}")
+       \"planKey\":\"GROWTH\",\"acceptedTerms\":true}")
 
 has "a gym is created" "$body" '"slug"'
 has "and the owner is signed in with the owner role" "$body" '"key":"GYM_OWNER"'
@@ -490,6 +490,93 @@ if [ -n "$INV_ID" ]; then
 else
   printf '  - invoice PDF checks skipped (no invoice in this account)\n'
 fi
+
+# ------------------------------------------------------------------- crm ---
+printf '\nenquiries\n'
+
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/crm/leads")
+check "enquiries are closed to strangers" "401" "$code"
+
+# Cross-site write refusal, the same guard every other mutation has.
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR2" -X POST "$BASE/api/v1/crm/leads" \
+  -H 'content-type: application/json' -H "origin: https://evil.example" \
+  -d '{"fullName":"Cross Site","phone":"9811100000","source":"WALK_IN"}')
+check "a cross-site enquiry POST is refused" "403" "$code"
+
+LEAD_ID=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/crm/leads" \
+  -H 'content-type: application/json' -H "origin: $BASE" \
+  -d '{"fullName":"Smoke Enquiry","phone":"9811100001","source":"INSTAGRAM","interestedIn":"Weight loss"}' \
+  | json_field id)
+
+check "an enquiry is recorded" "true" "$([ -n "$LEAD_ID" ] && echo true || echo false)"
+
+if [ -n "$LEAD_ID" ]; then
+  # The same number again: a warning the counter can override, not a block,
+  # because couples and families share one phone.
+  code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR2" -X POST "$BASE/api/v1/crm/leads" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d '{"fullName":"Same Number","phone":"9811100001","source":"WALK_IN"}')
+  check "a repeat number warns with 409" "409" "$code"
+
+  code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR2" -X POST "$BASE/api/v1/crm/leads" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d '{"fullName":"Same Number","phone":"9811100001","source":"WALK_IN","allowDuplicate":true}')
+  check "and goes through when the counter says so" "201" "$code"
+
+  body=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/crm/activity" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d "{\"leadId\":\"$LEAD_ID\",\"activityType\":\"CALL\",\"outcome\":\"Asked for a trial\",
+         \"nextFollowUpAt\":\"2027-01-15\",\"status\":\"FOLLOW_UP\"}")
+  has "logging a call moves the follow-up in one action" "$body" '"nextFollowUpAt"'
+
+  body=$(curl -s -b "$JAR2" "$BASE/api/v1/crm/pipeline")
+  has "the pipeline reports the stages" "$body" '"byStatus"'
+
+  CONVERTED=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/crm/convert" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d "{\"leadId\":\"$LEAD_ID\"}" | json_field memberId)
+  check "converting creates a member" "true" "$([ -n "$CONVERTED" ] && echo true || echo false)"
+
+  body=$(curl -s -b "$JAR2" "$BASE/api/v1/crm/leads/$LEAD_ID")
+  has "and the enquiry records where the member came from" "$body" '"CONVERTED"'
+fi
+
+# ------------------------------------------------------------ plan limits ---
+# A gym on Starter is told what its plan does not include, in a form the
+# mobile app can branch on. Silence or a 500 here would read as a bug in the
+# product rather than the edge of a plan.
+printf '\nthe plan boundary\n'
+
+JAR3="$(mktemp)"
+curl -s -c "$JAR3" -o /dev/null -X POST "$BASE/api/v1/auth/register" \
+  -H 'content-type: application/json' \
+  -d "{\"gymName\":\"Starter Gym $STAMP\",\"ownerName\":\"Starter Owner\",
+       \"email\":\"starter.$STAMP@example.com\",\"phone\":\"9876500022\",
+       \"password\":\"$PASSWORD\",\"planKey\":\"STARTER\",\"acceptedTerms\":true}"
+
+body=$(curl -s -b "$JAR3" "$BASE/api/v1/session")
+has "a Starter gym signs in" "$body" '"key":"GYM_OWNER"'
+held=$(printf '%s' "$body" | python3 -c \
+  "import sys,json;d=json.load(sys.stdin)['data'];print('crm.lead.read' in d['permissions'])" \
+  2>/dev/null)
+check "Starter does not hold the CRM permissions" "False" "$held"
+has "and the session says which feature the plan withholds" "$body" '"planLocked"'
+
+body=$(curl -s -b "$JAR3" "$BASE/api/v1/crm/leads")
+has "the CRM refuses with a code, not a crash" "$body" "FEATURE_NOT_IN_PLAN"
+has "and names the feature in plain words" "$body" "enquiry and lead management"
+
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR3" "$BASE/crm/leads")
+check "the page itself answers 200 so it can explain the plan" "200" "$code"
+
+body=$(curl -s -b "$JAR3" "$BASE/crm/leads")
+has "the page names the plan that includes it" "$body" "Growth"
+
+# Members are in every plan: the lock must be the feature, not the gym.
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR3" "$BASE/api/v1/members")
+check "and everything in the Starter plan still works" "200" "$code"
+
+rm -f "$JAR3"
 
 rm -f "$JAR2"
 

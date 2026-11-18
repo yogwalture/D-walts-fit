@@ -29,6 +29,7 @@ export type ErrorCode =
   // 409
   | 'CONFLICT'
   | 'DUPLICATE_MEMBER'
+  | 'DUPLICATE_LEAD'
   | 'ALREADY_CHECKED_IN'
   | 'SUBSCRIPTION_EXPIRED'
   | 'SUBSCRIPTION_NOT_ACTIVE'
@@ -60,6 +61,7 @@ const STATUS: Record<ErrorCode, number> = {
   NOT_FOUND: 404,
   CONFLICT: 409,
   DUPLICATE_MEMBER: 409,
+  DUPLICATE_LEAD: 409,
   ALREADY_CHECKED_IN: 409,
   SUBSCRIPTION_EXPIRED: 409,
   SUBSCRIPTION_NOT_ACTIVE: 409,
@@ -110,6 +112,32 @@ export const unauthenticated = (m = 'Sign in to continue') =>
 
 export const permissionDenied = (permission: string) =>
   new AppError('PERMISSION_DENIED', `You do not have permission to ${permission}.`);
+
+/**
+ * The plan does not include this. Named after the feature rather than the
+ * permission, because the feature is what the gym would be buying.
+ */
+export const featureNotInPlan = (feature: string) =>
+  new AppError(
+    'FEATURE_NOT_IN_PLAN',
+    `Your current plan does not include ${FEATURE_LABEL[feature] ?? feature}.`,
+  );
+
+/** Plain-language names for the plan features, for messages people read. */
+export const FEATURE_LABEL: Record<string, string> = {
+  crm: 'enquiry and lead management',
+  classes: 'classes and scheduling',
+  workouts: 'workout plans',
+  inventory: 'inventory and point of sale',
+  video: 'the video library',
+  whatsapp: 'WhatsApp messaging',
+  reports: 'reports',
+  payroll: 'payroll',
+  advanced_analytics: 'advanced analytics',
+  white_label: 'white labelling',
+  custom_domain: 'a custom domain',
+  api_access: 'API access',
+};
 
 export const notFound = (what = 'Record') => new AppError('NOT_FOUND', `${what} not found.`);
 

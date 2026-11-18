@@ -1,4 +1,9 @@
-import { permissionDenied, AppError } from '../errors';
+import { permissionDenied, featureNotInPlan, AppError } from '../errors';
+
+/** Throws; typed as returning Scope so callers read as a single expression. */
+function neverReached(feature: string): never {
+  throw featureNotInPlan(feature);
+}
 
 /**
  * The permission engine.
@@ -23,12 +28,22 @@ export interface ResolvedPermissions {
   isPlatformAdmin: boolean;
   /** Feature keys the organization's plan unlocks. */
   features: Set<string>;
+  /**
+   * Permissions the actor's role grants but their plan withholds, mapped to
+   * the feature that would unlock them.
+   *
+   * Kept separate from `grants` because "your role does not allow this" and
+   * "your plan does not include this" are different answers. The first is a
+   * dead end; the second is a sale. Collapsing them is why a gym on Starter
+   * used to meet a server error on a page we are trying to sell them.
+   */
+  lockedByPlan: Record<string, string>;
 }
 
 const SCOPE_RANK: Record<Scope, number> = { OWN: 1, BRANCH: 2, ALL: 3 };
 
 /** Which feature key, if any, gates a permission domain. */
-const DOMAIN_FEATURE: Record<string, string> = {
+export const DOMAIN_FEATURE: Record<string, string> = {
   crm: 'crm',
   classes: 'classes',
   fitness: 'workouts',
@@ -49,6 +64,7 @@ export interface ResolveInput {
 export function resolvePermissions(input: ResolveInput): ResolvedPermissions {
   const features = new Set(input.planFeatures);
   const grants: Record<string, Scope> = {};
+  const lockedByPlan: Record<string, string> = {};
 
   // 1. the role
   for (const { permissionKey, scope } of input.rolePermissions) {
@@ -84,6 +100,7 @@ export function resolvePermissions(input: ResolveInput): ResolvedPermissions {
     const requiredFeature = DOMAIN_FEATURE[domain];
     if (requiredFeature && !features.has(requiredFeature)) {
       delete grants[key];
+      lockedByPlan[key] = requiredFeature;
     }
   }
 
@@ -93,6 +110,7 @@ export function resolvePermissions(input: ResolveInput): ResolvedPermissions {
     branchIds: input.branchIds,
     isPlatformAdmin: input.isPlatformAdmin,
     features,
+    lockedByPlan,
   };
 }
 
@@ -120,8 +138,28 @@ export function requirePermission(
   permission: string,
 ): Scope {
   const scope = scopeOf(resolved, permission);
-  if (!scope) throw permissionDenied(permission);
+  if (!scope) throw denialFor(resolved, permission);
   return scope;
+}
+
+/**
+ * The feature a permission needs but the plan withholds, or null.
+ *
+ * The interface uses this to label a locked area rather than hide it: a gym
+ * cannot buy what it never sees.
+ */
+export function featureLock(
+  resolved: ResolvedPermissions,
+  permission: string,
+): string | null {
+  if (permission in resolved.grants) return null;
+  return resolved.lockedByPlan[permission] ?? null;
+}
+
+/** The right refusal: a plan lock where the role would otherwise allow it. */
+export function denialFor(resolved: ResolvedPermissions, permission: string): AppError {
+  const feature = featureLock(resolved, permission);
+  return feature ? featureNotInPlan(feature) : permissionDenied(permission);
 }
 
 /** Requires any one of several permissions — for routes serving two roles. */
@@ -133,6 +171,10 @@ export function requireAnyPermission(
     const scope = scopeOf(resolved, permission);
     if (scope) return scope;
   }
+  // If every candidate is held back by the plan, say so — one locked feature
+  // behind two permission keys is still a sale, not a refusal.
+  const locks = permissions.map((p) => featureLock(resolved, p)).filter(Boolean);
+  if (locks.length === permissions.length) return neverReached(locks[0]!);
   throw permissionDenied(permissions.join(' or '));
 }
 

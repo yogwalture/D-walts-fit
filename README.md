@@ -24,7 +24,7 @@ project's architecture document.
 | --- | --- |
 | Data model | 88 models, 45 enums, verified against PostgreSQL 16 |
 | Migrations | `init` + `row_level_security`, both applied and reversible by replay |
-| Tenant isolation | 79 tables under forced row-level security, 79 policies |
+| Tenant isolation | 81 tables under forced row-level security, 81 policies |
 | Permission registry | 140 permissions, 7 system roles seeded |
 | Authentication | Argon2id, database sessions, TOTP, lockout, organization switching |
 | Account flows | Password reset, staff invitations, two-factor enrolment, member one-time-code login |
@@ -35,8 +35,10 @@ project's architecture document.
 | Money | Counter payments, GST tax invoices and receipts as PDFs, expenses, the Razorpay webhook |
 | Dashboard | Eight date ranges, six charts, and the three lists a gym actually works from |
 | Team | Staff profiles, trainer assignment, permission-gated salary, pending invitations |
-| Web application | Next.js 15 — marketing page, auth, and fifteen screens of the gym portal |
-| Tests | **477 passing**: 40 isolation, 34 auth, 30 account flows, 56 operations, 24 invoices, 42 import, 20 expenses, 20 staff, 12 contracts, 106 HTTP checks, 93 browser checks |
+| Enquiries | Walk-ins and calls, follow-ups that move when a call is logged, trials, conversion to a member with the source kept |
+| Plans and billing tiers | Chosen at registration, and a feature outside the plan explains itself instead of failing |
+| Web application | Next.js 15 — marketing page, auth, and eighteen screens of the gym portal |
+| Tests | **536 passing**: 40 isolation, 38 auth and plan locks, 30 account flows, 56 operations, 24 invoices, 42 import, 20 expenses, 20 staff, 20 enquiries, 12 contracts, 121 HTTP checks, 111 browser checks |
 
 ---
 
@@ -89,7 +91,7 @@ pnpm dev                 # http://localhost:3000
 To run everything:
 
 ```bash
-pnpm vitest run                                   # 278 tests against a real database
+pnpm vitest run                                   # 302 tests against a real database
 bash tests/e2e/http-smoke.sh                      # 106 checks against a running server
 node tests/e2e/phase2-browser.mjs                 # 93 checks in a real browser
 ```

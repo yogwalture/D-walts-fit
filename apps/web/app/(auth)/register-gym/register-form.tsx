@@ -3,8 +3,24 @@
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 
-export function RegisterForm() {
+interface SignupPlan {
+  key: string;
+  name: string;
+  tagline: string | null;
+  monthlyPrice: number;
+  trialDays: number;
+}
+
+/**
+ * The plan picked here decides what the gym can use during the trial, so it
+ * is part of registration rather than something to discover later from a
+ * locked page. Nothing is charged now: every plan starts on its free trial.
+ */
+export function RegisterForm({ plans }: { plans: SignupPlan[] }) {
   const router = useRouter();
+  const [plan, setPlan] = useState(
+    plans.find((p) => p.key === 'GROWTH')?.key ?? plans[0]?.key ?? 'STARTER',
+  );
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -25,7 +41,7 @@ export function RegisterForm() {
         phone: String(form.get('phone') ?? ''),
         password: String(form.get('password') ?? ''),
         city: String(form.get('city') ?? '') || undefined,
-        planKey: 'STARTER',
+        planKey: plan,
         acceptedTerms: form.get('acceptedTerms') === 'on',
       }),
     });
@@ -67,6 +83,44 @@ export function RegisterForm() {
       <Field name="email" label="Email address" type="email" autoComplete="email" error={fieldErrors.email} />
       <Field name="phone" label="Mobile number" type="tel" autoComplete="tel" inputMode="numeric" error={fieldErrors.phone} />
       <Field name="city" label="City" required={false} error={fieldErrors.city} />
+
+      <fieldset className="space-y-2">
+        <legend className="mb-1 block text-sm font-medium text-ink">Plan</legend>
+        {plans.map((option) => (
+          <label
+            key={option.key}
+            className={`flex cursor-pointer items-start gap-3 rounded-control border px-3 py-2.5 transition-colors ${
+              plan === option.key
+                ? 'border-accent bg-accent-soft'
+                : 'border-line hover:border-ink-subtle'
+            }`}
+          >
+            <input
+              type="radio"
+              name="planKey"
+              value={option.key}
+              checked={plan === option.key}
+              onChange={() => setPlan(option.key)}
+              className="mt-1"
+            />
+            <span className="min-w-0 flex-1">
+              <span className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="text-base font-medium text-ink">{option.name}</span>
+                <span className="text-sm text-ink-muted">
+                  ₹{option.monthlyPrice.toLocaleString('en-IN')}/month after the trial
+                </span>
+              </span>
+              {option.tagline && (
+                <span className="mt-0.5 block text-sm text-ink-muted">{option.tagline}</span>
+              )}
+            </span>
+          </label>
+        ))}
+        <p className="text-sm text-ink-subtle">
+          Free for the first {plans.find((p) => p.key === plan)?.trialDays ?? 14} days, and you
+          can change plan afterwards.
+        </p>
+      </fieldset>
 
       <div>
         <label htmlFor="password" className="label">

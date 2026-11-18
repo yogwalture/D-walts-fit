@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { listSignupPlans } from '@gym/core';
 import { RegisterForm } from './register-form';
 
 // A CSP nonce is per request, so it cannot be baked into statically
@@ -9,10 +10,13 @@ export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'Register your gym' };
 
-export default function RegisterGymPage() {
+export default async function RegisterGymPage() {
+  // Read live, so a pricing change does not need a code change.
+  const plans = await listSignupPlans();
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-canvas px-4 py-12">
-      <div className="w-full max-w-md animate-fade-in">
+      <div className="w-full max-w-lg animate-fade-in">
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-semibold tracking-tight text-ink">Register your gym</h1>
           <p className="mt-1 text-base text-ink-muted">
@@ -21,7 +25,7 @@ export default function RegisterGymPage() {
         </div>
 
         <div className="card p-6">
-          <RegisterForm />
+          <RegisterForm plans={plans} />
         </div>
 
         <p className="mt-6 text-center text-base text-ink-muted">

@@ -123,6 +123,16 @@ only when real credentials have been used and a real call has succeeded.
 | Branch-aware assignment | A trainer limited to certain branches cannot be handed a member from another |
 | Pending invitations | Visible with who sent them and when they expire, and revocable — an invited person has no account until they accept |
 | **Staff and trainer suite — 20 tests** | **Including that a manager can edit a profile but not set a wage** |
+| Enquiries | Every walk-in and phone enquiry, ordered by how overdue its follow-up is — the list a gym works from on a Monday, not an alphabetical directory |
+| A call and its next follow-up are one action | A follow-up that has to be scheduled as a separate step is one that does not get scheduled |
+| Trials | Booked against a trainer, with the outcome recorded, because a trial nobody follows up on is a free session |
+| Converting an enquiry | Creates the member in one transaction, keeps `convertedFromLeadId`, and writes both the enquiry's history and the member's timeline — so a gym can answer "which of our members came from Instagram" |
+| Duplicate enquiries warn rather than block | Couples and families share one phone number; the counter can record it anyway |
+| Conversion rate over decided enquiries | `converted / (converted + lost)` — an open enquiry has not failed, and counting it as one flatters nobody |
+| **Enquiries suite — 20 tests** | **Including that one gym's pipeline figures cannot see another's enquiries** |
+| Plan boundaries are a sale, not an error | A gym whose plan excludes a feature meets a page naming the plan that includes it and its price — not a 500 |
+| Plan chosen at registration | The signup form reads the live plan table, so a pricing change is a data change |
+| **Plan-lock tests — 4 tests** | **Including that a role denial and a plan lock are never confused for each other** |
 
 ### What the isolation suite actually proves
 
@@ -149,7 +159,6 @@ Acting as Gym A, against Gym B's real record ids:
 | Transferring a membership between branches | Works over the API and is tested; no screen offers it yet |
 | Classes and scheduling | Models exist; no service or screen yet |
 | Inventory and point of sale | Models exist; no service or screen yet |
-| Leads and CRM | Models exist; no service or screen yet |
 | Staff attendance, shifts and leave | Models and permissions exist; no service or screen yet |
 | Devanagari and other Indic names on the PDF | pdfkit cannot shape complex scripts. `hasUnsupportedScript` detects the case so it can be reported rather than printed as boxes; a gym recording names in Marathi needs a different renderer |
 | Razorpay checkout in the browser | The server half is built and tested; the checkout flow needs real test credentials |
@@ -229,6 +238,27 @@ Recorded because each one says something about where the bugs actually are.
 ---
 
 ## Changelog
+
+**18 November 2026 — Enquiries, and the difference between a locked door and a dead end**
+A gym's growth is almost entirely one thing: someone walks in, asks the
+price, says they will think about it, and is never called again. Enquiries
+exist to stop that, so logging a call and moving the follow-up are a single
+action rather than two, and the default view is the overdue ones.
+
+Building it surfaced something worse than a missing feature. The CRM is a
+Growth-plan feature, and the permission engine removed plan-gated
+permissions from the resolved set — making "your plan does not include this"
+indistinguishable from "your role does not allow this". A gym owner on
+Starter clicking Enquiries got **a server error on a page we are trying to
+sell them**. Plan locks are now tracked separately: the API answers
+`FEATURE_NOT_IN_PLAN` with the feature named in plain words, the page
+explains which plan includes it and what it costs, and the sidebar keeps the
+item visible with a "Locked" tag — because nobody buys what they never see.
+The registration form also only ever sold the cheapest plan; it now reads
+the plan table and lets a gym choose, which is what decides the features
+they can try during the trial. 536 checks passing: 302 tests, 121 HTTP
+checks and 111 browser checks, with row-level security still forced on all
+81 tenant tables.
 
 **18 November 2026 — Phase 3 begins: the team, and trainers who have members**
 The trainer role has carried OWN scope on members since Phase 1 and nothing
