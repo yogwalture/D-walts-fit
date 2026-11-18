@@ -145,6 +145,12 @@ const NAVIGATION: NavSection[] = [
         permission: 'comms.template.read',
         built: true,
       },
+      {
+        href: '/settings/billing',
+        label: 'Subscription',
+        permission: 'org.billing.read',
+        built: true,
+      },
       { href: '/settings/security', label: 'Security', built: true },
     ],
   },

@@ -33,8 +33,14 @@ import {
 
 const db = new PrismaClient({ datasources: { db: { url: process.env.JOBS_DATABASE_URL } } });
 const unique = () => Math.random().toString(36).slice(2, 8);
+/**
+ * A date relative to the gym's own business day, not to UTC.
+ *
+ * After 18:30 UTC the two are different days, and a test built on UTC
+ * passes only between midnight and half past six in the evening.
+ */
 const iso = (offsetDays: number) =>
-  new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
+  businessDayIso('Asia/Kolkata', new Date(Date.now() + offsetDays * 86_400_000));
 
 let gym: Awaited<ReturnType<typeof registerGym>>;
 let ctx: { organizationId: string; userId: string };
@@ -197,7 +203,10 @@ describe('the staff register', () => {
     await markStaffAttendance(ctx, owner, { orgUserId: trainerOrgUserId, action: 'IN' });
 
     const rows = await db.staffAttendance.findMany({
-      where: { orgUserId: trainerOrgUserId, attendanceDate: new Date(`${businessDayIso()}T00:00:00.000Z`) },
+      where: {
+        orgUserId: trainerOrgUserId,
+        attendanceDate: new Date(`${businessDayIso()}T00:00:00.000Z`),
+      },
     });
     expect(rows).toHaveLength(1);
   });
@@ -277,8 +286,9 @@ describe('the rota', () => {
   });
 
   it('shows the shift against the day, with a one-off beating the pattern', async () => {
-    const today = new Date();
-    const weekday = today.getUTCDay();
+    // The gym's own day decides the weekday, not UTC's: at 01:00 IST those
+    // are different days of the week.
+    const weekday = new Date(`${businessDayIso()}T00:00:00.000Z`).getUTCDay();
 
     await setShift(ctx, owner, {
       orgUserId: trainerOrgUserId,

@@ -1736,6 +1736,65 @@ try {
   });
   check('the staff session is untouched', stillStaff === 'GYM_OWNER', String(stillStaff));
 
+  // ------------------------------------------------------ the subscription ---
+  // The commercial side: what a gym sees about its own account with us.
+  section('The subscription');
+  await page.goto(`${BASE}/settings/billing`, { waitUntil: 'domcontentloaded' });
+  check(
+    'the subscription page renders',
+    (await page.getByRole('heading', { name: 'Subscription' }).count()) > 0,
+  );
+
+  const billingText = await page.evaluate(() => document.body.innerText);
+  check('it shows the plan and the trial', /Growth/.test(billingText) && /trial/i.test(billingText));
+  check(
+    'and what the gym is using against what it pays for',
+    /Members/.test(billingText) && /Branches/.test(billingText),
+  );
+  check(
+    'and says a trial ending means read-only, not locked out',
+    /read-only rather than being locked/i.test(billingText),
+  );
+
+  // Considering a downgrade has to say what it would cost them first.
+  await page.getByRole('button', { name: 'Consider' }).first().click();
+  await page.waitForFunction(
+    () => /less a month|more a month|not possible yet/i.test(document.body.innerText),
+    undefined,
+    { timeout: 20_000 },
+  );
+  const consideration = await page.evaluate(() => document.body.innerText);
+  check('considering a plan says what it would do', true);
+  check(
+    'including what would be lost',
+    /You would lose|not possible yet/i.test(consideration),
+    consideration.split('\n').filter((l) => /would lose|not possible/i.test(l)).join(' | '),
+  );
+
+  // Upgrading, which must take effect immediately rather than at a period end.
+  const upgraded = await page.evaluate(async () => {
+    const response = await fetch('/api/v1/org/billing', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ planKey: 'PROFESSIONAL' }),
+    });
+    const body = await response.json();
+    const after = await (await fetch('/api/v1/org/billing')).json();
+    return { ok: response.ok, direction: body.data?.direction, plan: after.data?.planKey };
+  });
+  check(
+    'an upgrade takes effect straight away',
+    upgraded.ok && upgraded.plan === 'PROFESSIONAL',
+    JSON.stringify(upgraded),
+  );
+
+  // And a feature that was locked a moment ago is now simply there.
+  const videoNow = await page.evaluate(async () => {
+    const session = await (await fetch('/api/v1/session')).json();
+    return Boolean(session.data?.permissions?.['content.video.manage']);
+  });
+  check('and the feature it unlocked is available at once', videoNow === true);
+
   // --------------------------------------------------------- the plan wall ---
   // A second gym, on Starter, which does not include the CRM. What it meets
   // there decides whether a plan boundary reads as a sale or as a bug: the
@@ -1780,9 +1839,22 @@ try {
     lockText.includes('Growth') && /₹\s?2,999/.test(lockText),
     lockText.slice(0, 160),
   );
+  // Self-serve plan changes exist now, so the locked page offers a way out
+  // — and it has to be a way that actually works for whoever is looking.
   check(
-    'with no button that cannot do anything',
-    !/See plans|Upgrade now/.test(lockText),
+    'and offers a way to do something about it',
+    /See plans/.test(lockText),
+    lockText.split('\n').filter((l) => /See plans|owner can change/.test(l)).join(' | '),
+  );
+
+  const lockLeadsSomewhere = await starterPage.evaluate(async () => {
+    const response = await fetch('/settings/billing');
+    return response.status;
+  });
+  check(
+    'and that way leads somewhere that loads',
+    lockLeadsSomewhere === 200,
+    String(lockLeadsSomewhere),
   );
 
   // The API must refuse it the same way, with a code the mobile app can read.

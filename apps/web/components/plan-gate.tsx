@@ -1,4 +1,6 @@
+import Link from 'next/link';
 import { cheapestPlanWithFeature, FEATURE_LABEL, formatRupees, toPaise } from '@gym/core';
+import { getSession, holds } from '@/lib/current-session';
 import { Card } from '@/components/ui';
 
 /**
@@ -20,6 +22,11 @@ export async function FeatureLocked({
   const plan = await cheapestPlanWithFeature(feature);
   const label = FEATURE_LABEL[feature] ?? feature;
 
+  // Only offered to somebody who can actually act on it. A receptionist
+  // meeting this screen should not be sent to a page that refuses them.
+  const session = await getSession();
+  const canChange = holds(session, 'org.billing.update');
+
   return (
     <div className="mx-auto max-w-xl py-10">
       <Card>
@@ -40,11 +47,16 @@ export async function FeatureLocked({
                 {formatRupees(toPaise(plan.monthlyPrice))} a month, or{' '}
                 {formatRupees(toPaise(plan.annualPrice))} a year.
               </p>
-              <p className="text-sm text-ink-muted">
-                To move up a plan, the gym owner can write to us from the email on the
-                account. Self-serve plan changes are not open yet, so we will not show a
-                button that cannot do it.
-              </p>
+              {canChange ? (
+                <Link href="/settings/billing" className="btn-primary inline-flex">
+                  See plans
+                </Link>
+              ) : (
+                <p className="text-sm text-ink-muted">
+                  The gym owner can change the plan from Settings. Nothing you have entered is
+                  affected either way.
+                </p>
+              )}
             </div>
           ) : (
             <p className="text-sm text-ink-muted">

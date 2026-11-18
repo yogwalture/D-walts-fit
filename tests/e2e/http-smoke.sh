@@ -943,6 +943,40 @@ rm -f "$JAR3"
 
 rm -f "$JAR2"
 
+# -------------------------------------------------------- the subscription ---
+printf '\nthe subscription\n'
+
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/org/billing")
+check "a gym's own subscription is closed to strangers" "401" "$code"
+
+body=$(curl -s -b "$JAR" "$BASE/api/v1/org/billing")
+has "it reports the plan and the usage against it" "$body" '"usage"'
+has "and whether the gym is read-only" "$body" '"isReadOnly"'
+
+body=$(curl -s -b "$JAR" -X PUT "$BASE/api/v1/org/billing?planKey=STARTER")
+has "considering a plan says which way it goes" "$body" '"direction"'
+has "and what would be lost" "$body" '"losesFeatures"'
+
+# The daily run is cron-only: it moves every tenant, which no request
+# carrying a session is ever allowed to do.
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/cron/billing")
+check "the billing run needs the cron secret" "401" "$code"
+
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR" -X POST "$BASE/api/cron/billing")
+check "and cannot be driven by a signed-in gym owner" "401" "$code"
+
+if [ -n "${CRON_SECRET:-}" ]; then
+  body=$(curl -s -X POST "$BASE/api/cron/billing" -H "authorization: Bearer ${CRON_SECRET}")
+  has "with the secret it reports what it moved" "$body" '"trialsEnded"'
+  has "and which trials somebody should ring about" "$body" '"trialsEndingSoon"'
+  # Read-only is the strongest thing non-payment does.
+  case "$body" in
+    *'"suspended"'*|*'"deleted"'*)
+      bad "nothing is suspended or deleted by the run" "neither" "present";;
+    *) ok "nothing is suspended or deleted by the run";;
+  esac
+fi
+
 # ---------------------------------------------------------- the member app ---
 printf '\nthe member app\n'
 

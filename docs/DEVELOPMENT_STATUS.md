@@ -194,6 +194,18 @@ only when real credentials have been used and a real call has succeeded.
 | Self check-in | The entrance QR rotates, so it only works at the gym, and the eligibility rules are the door's own |
 | Installable | Manifest served from configuration so a white-label gym installs its own name; the service worker caches the shell and **never** the API |
 | **Member portal suite — 18 tests** | **Including that a member cannot reach another member's money or another gym's anything** |
+| **— Phase 6 —** | |
+| A gym's own subscription page | Plan, trial, invoices, and what they are using against what they pay for |
+| Changing plan says what it would do first | The price difference, the features lost, and — if the gym is too big — the number that makes it impossible |
+| A downgrade that would break a gym is refused | "You have 412 members and Starter covers 200" is actionable; "cannot downgrade" is not |
+| An upgrade takes effect at once | Deferring it means the interface says one plan while the engine enforces another |
+| A trial that ends goes read-only, not locked | Every record readable and exportable; no new money taken until a plan is paid for |
+| Read-only is enforced in the permission engine | One place, so no screen can forget it; reads, exports and the billing page survive it |
+| The refusal names the bill, not their permissions | "You do not have permission" sends an owner hunting through roles for a setting that was never the problem |
+| Nothing is deleted for non-payment, ever | Not after grace, not after cancellation — a thing to be incapable of rather than to have a policy about |
+| Our own invoices carry GST | Software sold by an Indian business; the gym needs the tax invoice to claim input credit |
+| The billing run is idempotent | Running it twice cannot invoice a gym twice, and a gateway retry cannot credit one twice |
+| **Platform billing suite — 19 tests** | **Including that every record survives a trial ending and the grace running out** |
 
 ### What the isolation suite actually proves
 

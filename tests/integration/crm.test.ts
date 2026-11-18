@@ -29,13 +29,21 @@ import {
   bookTrial,
   recordTrialOutcome,
   getDashboardSummary,
+  businessDayIso,
   AppError,
 } from '@gym/core';
 
 const db = new PrismaClient({ datasources: { db: { url: process.env.JOBS_DATABASE_URL } } });
 const unique = () => Math.random().toString(36).slice(2, 8);
 const iso = (d: Date) => d.toISOString().slice(0, 10);
-const daysFromNow = (n: number) => iso(new Date(Date.now() + n * 86_400_000));
+/**
+ * Relative to the gym's own business day rather than to UTC.
+ *
+ * "Due today" means due on the gym's today, and after 18:30 UTC that is
+ * tomorrow's UTC date — a test built on UTC passes only for part of a day.
+ */
+const daysFromNow = (n: number) =>
+  businessDayIso('Asia/Kolkata', new Date(Date.now() + n * 86_400_000));
 
 let gym: Awaited<ReturnType<typeof registerGym>>;
 let ctx: { organizationId: string; userId: string };

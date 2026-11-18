@@ -37,6 +37,7 @@ import {
   setPreference,
   recordInboundOptOut,
   getWhatsappSettings,
+  businessDayIso,
   applyWhatsappWebhook,
   queueExpiryReminders,
   encryptSecret,
@@ -713,9 +714,11 @@ describe('expiry reminders', () => {
       });
     }
 
-    // Move one membership to exactly seven days out.
-    const sevenDays = new Date(Date.now() + 7 * 86_400_000);
-    sevenDays.setUTCHours(0, 0, 0, 0);
+    // Exactly seven days out from the gym's own business day, which after
+    // 18:30 UTC is not the same as seven days from the UTC date.
+    const sevenDays = new Date(
+      `${businessDayIso('Asia/Kolkata', new Date(Date.now() + 7 * 86_400_000))}T00:00:00.000Z`,
+    );
     await db.subscription.updateMany({
       where: { memberId: memberIds[0]!, organizationId: gym.organizationId },
       data: { endDate: sevenDays, status: 'ACTIVE' },

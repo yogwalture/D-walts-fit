@@ -25,6 +25,7 @@ import {
   todaysExpenses,
   getReceiptDocument,
   getDashboardSummary,
+  resolveRange,
   businessDayIso,
   AppError,
 } from '@gym/core';
@@ -253,6 +254,23 @@ describe('the dashboard', () => {
     expect(Number(summary.money.expensesInRange)).toBe(500);
     expect(Number(summary.money.collectedInRange)).toBe(1500);
     expect(Number(summary.money.netInRange), 'collected minus spent').toBe(1000);
+  });
+
+  it('counts a payment taken after midnight as today, not yesterday', () => {
+    // A gym open at 1am IST takes money at 19:30 UTC *the previous day*.
+    // Comparing that timestamp against a UTC-midnight date dropped it out
+    // of the gym's own day, so the dashboard showed a collection of zero
+    // while the till had money in it.
+    const range = resolveRange('today', undefined, 'Asia/Kolkata');
+
+    expect(range.fromInstant.getTime()).toBeLessThan(range.from.getTime());
+    expect(range.toInstant.getTime() - range.fromInstant.getTime()).toBe(86_400_000);
+
+    // The business day itself is still a date, for the date-only columns.
+    expect(range.from.toISOString()).toMatch(/T00:00:00\.000Z$/);
+    // And the instants are offset by the zone, not by a whole day.
+    const offsetHours = (range.from.getTime() - range.fromInstant.getTime()) / 3_600_000;
+    expect(offsetHours).toBeCloseTo(5.5, 1);
   });
 
   it('reports today’s spend on the gym’s own day', async () => {

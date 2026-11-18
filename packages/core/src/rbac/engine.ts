@@ -28,6 +28,8 @@ export interface ResolvedPermissions {
   isPlatformAdmin: boolean;
   /** Feature keys the organization's plan unlocks. */
   features: Set<string>;
+  /** The gym is read-only: it has not paid, and keeps every record. */
+  isReadOnly: boolean;
   /**
    * Permissions the actor's role grants but their plan withholds, mapped to
    * the feature that would unlock them.
@@ -59,6 +61,11 @@ export interface ResolveInput {
   branchIds: string[];
   planFeatures: string[];
   isPlatformAdmin: boolean;
+  /**
+   * The gym has not paid, so it can read and export everything it has and
+   * change nothing. Set from the tenant subscription.
+   */
+  isReadOnly?: boolean;
 }
 
 export function resolvePermissions(input: ResolveInput): ResolvedPermissions {
@@ -94,7 +101,20 @@ export function resolvePermissions(input: ResolveInput): ResolvedPermissions {
     }
   }
 
-  // 4. plan features
+  // 4. read-only, when the gym has not paid
+  //
+  // Everything they have stays readable and exportable; nothing new can be
+  // written. This is the strongest thing non-payment ever does — a product
+  // that holds a gym's records hostage is one no gym should buy, and
+  // deleting a customer's data because they stopped paying is a thing to
+  // be incapable of rather than to have a policy about.
+  if (input.isReadOnly) {
+    for (const key of Object.keys(grants)) {
+      if (!isReadOnlySafe(key)) delete grants[key];
+    }
+  }
+
+  // 5. plan features
   for (const key of Object.keys(grants)) {
     const domain = key.split('.')[0]!;
     const requiredFeature = DOMAIN_FEATURE[domain];
@@ -111,7 +131,22 @@ export function resolvePermissions(input: ResolveInput): ResolvedPermissions {
     isPlatformAdmin: input.isPlatformAdmin,
     features,
     lockedByPlan,
+    isReadOnly: input.isReadOnly ?? false,
   };
+}
+
+/**
+ * What survives read-only.
+ *
+ * Reading anything, exporting everything, and managing the subscription
+ * itself — because the way out of read-only is to pay, and a gym locked out
+ * of its own billing page could not.
+ */
+function isReadOnlySafe(key: string): boolean {
+  if (key.endsWith('.read')) return true;
+  if (key.startsWith('platform.')) return true;
+  if (key.startsWith('self.')) return true;
+  return key === 'org.export.create' || key === 'org.billing.update';
 }
 
 // ------------------------------------------------------------- guards ---
@@ -159,7 +194,19 @@ export function featureLock(
 /** The right refusal: a plan lock where the role would otherwise allow it. */
 export function denialFor(resolved: ResolvedPermissions, permission: string): AppError {
   const feature = featureLock(resolved, permission);
-  return feature ? featureNotInPlan(feature) : permissionDenied(permission);
+  if (feature) return featureNotInPlan(feature);
+
+  // Saying "you do not have permission" to a gym owner whose own account is
+  // simply unpaid sends them hunting through their roles for a setting that
+  // was never the problem.
+  if (resolved.isReadOnly && !isReadOnlySafe(permission)) {
+    return new AppError(
+      'ORGANIZATION_READ_ONLY',
+      'This gym is read-only until its subscription is paid. Everything is still here and can be exported.',
+    );
+  }
+
+  return permissionDenied(permission);
 }
 
 /** Requires any one of several permissions — for routes serving two roles. */

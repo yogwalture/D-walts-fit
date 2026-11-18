@@ -1,6 +1,6 @@
 import { withTenant } from '@gym/db';
 import { requirePermission, type ResolvedPermissions } from '../rbac/engine';
-import { addDays, businessDay, startOfDay } from '../shared/dates';
+import { addDays, businessDay, businessDayRange, startOfDay } from '../shared/dates';
 import { toPaise, toRupees } from '../shared/money';
 
 /**
@@ -33,8 +33,19 @@ export type DateRangeKey =
   | 'custom';
 
 export interface DateRange {
+  /** Business days, for the date-only columns: attendance, expenses, joining. */
   from: Date;
   to: Date;
+  /**
+   * The real UTC instants those days cover, for the timestamp columns.
+   *
+   * Not interchangeable with the dates above. A payment taken at 01:00 IST
+   * happens at 19:30 UTC *the previous day*, so comparing a timestamp
+   * against a UTC-midnight date drops it out of the gym's own day — which
+   * showed a gym open after midnight a collection figure of zero.
+   */
+  fromInstant: Date;
+  toInstant: Date;
   label: string;
 }
 
@@ -43,6 +54,12 @@ export function resolveRange(
   custom?: { from?: string; to?: string },
   timezone = 'Asia/Kolkata',
 ): DateRange {
+  const withInstants = (range: { from: Date; to: Date; label: string }): DateRange => ({
+    ...range,
+    fromInstant: businessDayRange(timezone, noonOn(range.from)).start,
+    toInstant: businessDayRange(timezone, noonOn(range.to)).end,
+  });
+
   const todayLocal = businessDay(timezone);
   const monthStart = new Date(
     Date.UTC(todayLocal.getUTCFullYear(), todayLocal.getUTCMonth(), 1),
@@ -50,41 +67,50 @@ export function resolveRange(
 
   switch (key) {
     case 'today':
-      return { from: todayLocal, to: todayLocal, label: 'Today' };
+      return withInstants({ from: todayLocal, to: todayLocal, label: 'Today' });
     case 'yesterday': {
       const day = addDays(todayLocal, -1);
-      return { from: day, to: day, label: 'Yesterday' };
+      return withInstants({ from: day, to: day, label: 'Yesterday' });
     }
     case 'last7':
-      return { from: addDays(todayLocal, -6), to: todayLocal, label: 'Last 7 days' };
+      return withInstants({ from: addDays(todayLocal, -6), to: todayLocal, label: 'Last 7 days' });
     case 'last30':
-      return { from: addDays(todayLocal, -29), to: todayLocal, label: 'Last 30 days' };
+      return withInstants({
+        from: addDays(todayLocal, -29),
+        to: todayLocal,
+        label: 'Last 30 days',
+      });
     case 'thisMonth':
-      return { from: monthStart, to: todayLocal, label: 'This month' };
+      return withInstants({ from: monthStart, to: todayLocal, label: 'This month' });
     case 'lastMonth': {
       const from = new Date(
         Date.UTC(todayLocal.getUTCFullYear(), todayLocal.getUTCMonth() - 1, 1),
       );
-      return { from, to: addDays(monthStart, -1), label: 'Last month' };
+      return withInstants({ from, to: addDays(monthStart, -1), label: 'Last month' });
     }
     case 'thisFinancialYear': {
       const year =
         todayLocal.getUTCMonth() + 1 >= 4
           ? todayLocal.getUTCFullYear()
           : todayLocal.getUTCFullYear() - 1;
-      return {
+      return withInstants({
         from: new Date(Date.UTC(year, 3, 1)),
         to: todayLocal,
         label: `FY ${year}-${String((year + 1) % 100).padStart(2, '0')}`,
-      };
+      });
     }
     case 'custom':
-      return {
+      return withInstants({
         from: custom?.from ? startOfDay(custom.from) : addDays(todayLocal, -29),
         to: custom?.to ? startOfDay(custom.to) : todayLocal,
         label: 'Custom range',
-      };
+      });
   }
+}
+
+/** Midday on a business day, so a zone offset cannot push it into another. */
+function noonOn(day: Date): Date {
+  return new Date(day.getTime() + 12 * 3_600_000);
 }
 
 export interface DashboardSummary {
@@ -117,7 +143,9 @@ export async function getDashboardSummary(
 
   const range = resolveRange(options.range ?? 'last30', { from: options.from, to: options.to });
   const todayLocal = businessDay();
-  const rangeEnd = new Date(range.to.getTime() + 86_400_000);
+  // Timestamps are compared against the real instants the business days
+  // cover; date-only columns keep using the dates themselves.
+  const rangeEnd = range.toInstant;
   const branchWhere = options.branchId ? { branchId: options.branchId } : {};
 
   return withTenant(ctx, async (tx) => {
@@ -181,7 +209,7 @@ export async function getDashboardSummary(
       tx.payment.aggregate({
         where: {
           status: 'CAPTURED',
-          receivedAt: { gte: range.from, lt: rangeEnd },
+          receivedAt: { gte: range.fromInstant, lt: rangeEnd },
           ...branchWhere,
         },
         _sum: { amount: true },
@@ -202,18 +230,22 @@ export async function getDashboardSummary(
         where: { deletedAt: null, status: { notIn: ['CONVERTED', 'LOST'] }, ...branchWhere },
       }),
       tx.lead.count({
-        where: { deletedAt: null, createdAt: { gte: range.from, lt: rangeEnd }, ...branchWhere },
+        where: {
+          deletedAt: null,
+          createdAt: { gte: range.fromInstant, lt: rangeEnd },
+          ...branchWhere,
+        },
       }),
       tx.lead.count({
         where: {
           deletedAt: null,
           status: 'CONVERTED',
-          convertedAt: { gte: range.from, lt: rangeEnd },
+          convertedAt: { gte: range.fromInstant, lt: rangeEnd },
           ...branchWhere,
         },
       }),
       tx.subscriptionEvent.count({
-        where: { eventType: 'RENEWED', createdAt: { gte: range.from, lt: rangeEnd } },
+        where: { eventType: 'RENEWED', createdAt: { gte: range.fromInstant, lt: rangeEnd } },
       }),
       tx.subscription.count({
         where: {

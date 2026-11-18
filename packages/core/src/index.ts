@@ -24,6 +24,7 @@ export * from './staff/service';
 export * from './staff/attendance';
 export * from './platform/console';
 export * from './platform/plan-features';
+export * from './platform/subscriptions';
 
 export * from './members/service';
 export * from './members/import';

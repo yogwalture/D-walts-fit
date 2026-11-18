@@ -11,3 +11,4 @@ export * from './staff-attendance';
 export * from './reports';
 export * from './comms';
 export * from './portal';
+export * from './billing';

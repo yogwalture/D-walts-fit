@@ -266,6 +266,7 @@ export async function resolveSession(
     branchIds: resolved.orgUser.branches.map((b: any) => b.branchId),
     planFeatures: resolved.subscription?.platformPlan.features ?? [],
     isPlatformAdmin: session.user.isPlatformAdmin,
+    isReadOnly: resolved.subscription?.isReadOnly ?? false,
   });
 
   return {

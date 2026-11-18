@@ -59,6 +59,15 @@ const tomorrowAt = (hour: number, minute = 0): string => {
   return d.toISOString();
 };
 
+/**
+ * The gym's own business day for a given instant.
+ *
+ * Not `businessDayIso(tz, Date.now() + a day)`: after 18:30 UTC those are
+ * different days, and a test that assumes otherwise passes only between
+ * midnight and half past six in the evening.
+ */
+const businessDayOf = (iso: string): string => businessDayIso('Asia/Kolkata', new Date(iso));
+
 /** A paying member who may attend anything. */
 async function paidMember(name: string, phone: string): Promise<string> {
   const member = await createMember(ctx, owner, {
@@ -179,7 +188,8 @@ describe('scheduling', () => {
 
     expect(result.ids).toHaveLength(1);
 
-    const day = businessDayIso('Asia/Kolkata', new Date(Date.now() + 86_400_000));
+    const scheduled = await db.gymClass.findUniqueOrThrow({ where: { id: result.ids[0]! } });
+    const day = businessDayOf(scheduled.startsAt.toISOString());
     const { rows } = await listClasses(ctx, owner, { from: day, to: day });
     const found = rows.find((r) => r.id === result.ids[0]);
     expect(found).toBeDefined();
@@ -628,7 +638,8 @@ describe('the register', () => {
     const memberId = await paidMember('Twice In', `97311${Math.floor(Math.random() * 90000) + 10000}`);
     const booking = await bookClass(ctx, owner, { classId: ids[0]!, memberId });
 
-    const tomorrow = businessDayIso('Asia/Kolkata', new Date(Date.now() + 86_400_000));
+    const session = await db.gymClass.findUniqueOrThrow({ where: { id: ids[0]! } });
+    const tomorrow = businessDayOf(session.startsAt.toISOString());
     await db.attendance.create({
       data: {
         organizationId: gym.organizationId,
