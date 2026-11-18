@@ -503,6 +503,8 @@ model Organization {
   @@index([status])
   @@index([deletedAt])
   @@map("organizations")
+  memberImports    MemberImport[]
+  memberImportRows MemberImportRow[]
 }
 
 model Branch {
@@ -548,6 +550,7 @@ model Branch {
   @@unique([organizationId, code])
   @@index([organizationId, isActive])
   @@map("branches")
+  memberImports MemberImport[]
 }
 
 model OrgSetting {
@@ -2991,4 +2994,92 @@ model VerificationToken {
   @@index([expiresAt])
   @@index([organizationId, type])
   @@map("verification_tokens")
+}
+
+/// A bulk member import, staged in the database rather than held in memory.
+///
+/// Staging matters on shared hosting: Hostinger kills a request at 120
+/// seconds and there is no Redis to park a parsed file in. Parsing and
+/// previewing is one request, and the commit then runs in batches against
+/// rows that are already stored — so a gym arriving with 2,000 members in a
+/// spreadsheet does not need the whole thing to fit in one request.
+model MemberImport {
+  id             String @id @default(uuid(7)) @db.Uuid
+  organizationId String @db.Uuid
+  branchId       String? @db.Uuid
+
+  filename   String
+  sheetName  String?
+  status     MemberImportStatus @default(READY)
+  /// Which spreadsheet column was read as which field.
+  columnMap  Json?  @db.JsonB
+
+  totalRows     Int @default(0)
+  validRows     Int @default(0)
+  duplicateRows Int @default(0)
+  invalidRows   Int @default(0)
+  createdCount  Int @default(0)
+  skippedCount  Int @default(0)
+
+  failureReason String?
+
+  createdByUserId String?   @db.Uuid
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  committedAt     DateTime? @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  rows MemberImportRow[]
+
+  @@index([organizationId, createdAt])
+  @@map("member_imports")
+}
+
+/// One row of a staged import, keeping the spreadsheet's own row number so a
+/// reported problem can be found and fixed in the original file.
+model MemberImportRow {
+  id             String @id @default(uuid(7)) @db.Uuid
+  organizationId String @db.Uuid
+  importId       String @db.Uuid
+
+  /// The row number as the spreadsheet shows it, header included.
+  rowNumber Int
+  /// Exactly what was in the file, kept so a mis-mapped column is diagnosable.
+  raw    Json  @db.JsonB
+  /// The normalised member fields this row would create.
+  parsed Json? @db.JsonB
+
+  status MemberImportRowStatus @default(VALID)
+  /// [{ field, issue }] — what is wrong with this row, in the user's terms.
+  issues Json? @db.JsonB
+
+  /// An existing member this row appears to duplicate.
+  duplicateOfMemberId String? @db.Uuid
+  /// The member created from this row, once committed.
+  memberId            String? @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  import       MemberImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@unique([importId, rowNumber])
+  @@index([organizationId, importId, status])
+  @@map("member_import_rows")
+}
+
+enum MemberImportStatus {
+  PARSING
+  READY
+  COMMITTING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum MemberImportRowStatus {
+  VALID
+  INVALID
+  DUPLICATE
+  CREATED
+  SKIPPED
 }

@@ -245,7 +245,8 @@ for path in \
   "/api/v1/dashboard/charts" \
   "/api/v1/dashboard/actions" \
   "/api/v1/finance/invoices" \
-  "/api/v1/memberships/subscriptions"
+  "/api/v1/memberships/subscriptions" \
+  "/api/v1/members/import"
 do
   code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE$path")
   check "$path is closed to a stranger" "401" "$code"
@@ -318,6 +319,48 @@ has "an override without a reason is refused" "$body" "VALIDATION_FAILED"
 # A list endpoint cannot be talked into returning the whole table.
 body=$(curl -s -b "$JAR2" "$BASE/api/v1/members?pageSize=100000")
 has "an oversized page size is refused" "$body" "VALIDATION_FAILED"
+
+printf '\nmember import\n'
+
+# The upload route reads a multipart body itself rather than going through the
+# JSON wrapper, so its gate is checked separately: a stranger must not be able
+# to post a file, and a cross-site form must not be able to either.
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/v1/members/import" \
+  -F 'file=@/dev/null;filename=x.csv;type=text/csv')
+check "a stranger cannot upload a member list" "401" "$code"
+
+printf 'Name,Mobile\nSmoke Import,9846000001\n' > /tmp/smoke-import.csv
+
+body=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/members/import" \
+  -H 'origin: https://evil.example.com' \
+  -F "file=@/tmp/smoke-import.csv;type=text/csv")
+has "a cross-site upload carrying the cookie is refused" "$body" "FORBIDDEN"
+
+body=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/members/import" \
+  -H "origin: $BASE" \
+  -F "file=@/tmp/smoke-import.csv;type=text/csv")
+has "a real upload is staged" "$body" '"validRows":1'
+has "and nothing is created yet" "$body" '"importId"'
+
+IMPORT_ID=$(printf '%s' "$body" | python3 -c "import sys,json;print((json.load(sys.stdin).get('data') or {}).get('importId',''))" 2>/dev/null)
+
+if [ -n "$IMPORT_ID" ]; then
+  body=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/members/import/$IMPORT_ID/commit" \
+    -H 'content-type: application/json' -H "origin: $BASE" -d '{}')
+  has "committing creates the member" "$body" '"created":1'
+
+  found=$(curl -s -b "$JAR2" "$BASE/api/v1/members?search=9846000001")
+  has "and it appears on the members list" "$found" "Smoke"
+fi
+
+# A file that is not a spreadsheet must be refused rather than half-read.
+printf '\x89PNG\r\n\x1a\n not a spreadsheet' > /tmp/smoke-not-a-sheet.png
+body=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/members/import" \
+  -H "origin: $BASE" \
+  -F "file=@/tmp/smoke-not-a-sheet.png;type=image/png")
+has "a file that is not a member list is refused" "$body" "VALIDATION_FAILED"
+
+rm -f /tmp/smoke-import.csv /tmp/smoke-not-a-sheet.png
 
 printf '\ninvoice PDFs\n'
 

@@ -4,6 +4,7 @@ export * from './rbac/engine';
 export * from './shared/dates';
 export * from './shared/money';
 export * from './shared/sequences';
+export * from './shared/spreadsheet';
 
 export * from './auth/password';
 export * from './auth/totp';
@@ -21,6 +22,7 @@ export * from './org/staff';
 export * from './platform/console';
 
 export * from './members/service';
+export * from './members/import';
 export * from './memberships/plans';
 export * from './memberships/subscriptions';
 export * from './attendance/service';

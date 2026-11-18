@@ -63,9 +63,14 @@ export default async function MembersPage({
         subtitle={`${total.toLocaleString('en-IN')} ${total === 1 ? 'member' : 'members'}`}
         action={
           holds(session, 'members.member.create') ? (
-            <Link href="/members/new" className="btn-primary">
-              Register member
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link href="/members/import" className="btn-ghost">
+                Import
+              </Link>
+              <Link href="/members/new" className="btn-primary">
+                Register member
+              </Link>
+            </div>
           ) : undefined
         }
       />

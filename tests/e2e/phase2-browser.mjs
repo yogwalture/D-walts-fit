@@ -448,6 +448,102 @@ try {
   const confirmDisabled = await page.getByRole('button', { name: 'Confirm' }).isDisabled();
   check('an extension cannot be confirmed without a reason', confirmDisabled);
 
+  // ---------------------------------------------------- importing a list ---
+  section('Importing a member list');
+  await page.goto(`${BASE}/members/import`, { waitUntil: 'domcontentloaded' });
+  check(
+    'the import page renders',
+    (await page.getByRole('heading', { name: 'Import members' }).count()) > 0,
+  );
+
+  // A file like the ones gyms actually have: a country code, a leading zero,
+  // a row with no name, a repeated number, and a blank line in the middle.
+  const importCsv = [
+    'Member Name,Mobile No,Email ID,DOJ,City',
+    'Meera Nair,9845000001,meera@example.com,15/03/2024,Pune',
+    'Rahul Verma,+91 9845000002,,01/04/2024,Mumbai',
+    'Kiran Rao,09845000003,kiran@example.com,,Nashik',
+    ',9845000004,,,Pune',
+    '',
+    'Deepa Shah,9845000001,deepa@example.com,,Pune',
+    'Arun Mehta,9845000005,arun@example.com,20/05/2024,Pune',
+  ].join('\n');
+
+  await page.setInputFiles('#import-file', {
+    name: 'members.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from(importCsv, 'utf8'),
+  });
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Ready to import'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('the file is read and counted before anything is created', true);
+
+  const counts = await page.evaluate(() => {
+    const text = document.body.innerText;
+    const read = (label) => {
+      const index = text.indexOf(label);
+      if (index < 0) return null;
+      const after = text.slice(index + label.length, index + label.length + 20);
+      const match = /\d[\d,]*/.exec(after);
+      return match ? Number(match[0].replace(/,/g, '')) : null;
+    };
+    return {
+      ready: read('Ready to import'),
+      duplicates: read('Already members'),
+      invalid: read('Need fixing'),
+    };
+  });
+
+  check('four good rows are counted', counts.ready === 4, JSON.stringify(counts));
+  check('the repeated number is flagged, not imported', counts.duplicates === 1, JSON.stringify(counts));
+  check('the nameless row is flagged', counts.invalid === 1, JSON.stringify(counts));
+
+  check(
+    'the columns were worked out from the headings',
+    (await page.getByText('Mobile No').count()) > 0,
+  );
+  check(
+    'and the preview shows rows as they would be imported',
+    (await page.getByText('Meera').count()) > 0,
+  );
+
+  // Nothing exists yet — the whole point of the preview.
+  const beforeCommit = await page.evaluate(async () => {
+    const r = await fetch('/api/v1/members?pageSize=100&search=Meera');
+    return (await r.json()).meta?.total ?? 0;
+  });
+  check('nothing is created until the gym says so', beforeCommit === 0, String(beforeCommit));
+
+  await page.getByRole('button', { name: /^Import 4 members$/ }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('members imported'),
+    undefined,
+    { timeout: 30_000 },
+  );
+  check('the import completes', true);
+
+  await page.goto(`${BASE}/members?q=Nair`, { waitUntil: 'domcontentloaded' });
+  check(
+    'the imported member is on the members list',
+    (await page.getByText('Meera Nair').count()) > 0,
+  );
+
+  const imported = await page.evaluate(async () => {
+    const r = await fetch('/api/v1/members?pageSize=100&search=9845');
+    const body = await r.json();
+    return { total: body.meta?.total ?? 0, first: body.data?.[0] ?? null };
+  });
+  check('all four are there, and only four', imported.total === 4, String(imported.total));
+  check(
+    'with a member code allocated',
+    /^M\d{5}$/.test(imported.first?.memberCode ?? ''),
+    String(imported.first?.memberCode),
+  );
+
   // ------------------------------------------------------------- the CSP ---
   section('Security headers');
   const response = await page.goto(`${BASE}/dashboard`, { waitUntil: 'domcontentloaded' });

@@ -101,6 +101,13 @@ only when real credentials have been used and a real call has succeeded.
 | Subscriptions screen | Freeze, unfreeze, extend and cancel on the row, each demanding a reason the server records |
 | The gym's business day is one concept | `businessDayRange` — a UTC day put an Indian gym's "today" from 05:30 to 05:30 |
 | **Invoice and subscription suite — 24 tests** | **Against real PostgreSQL, including a real rendered PDF** |
+| Bulk member import from CSV and Excel | Upload, check, import — nothing created until the gym has seen the counts |
+| A hand-written spreadsheet reader | No `xlsx` (the newest on npm carries a prototype-pollution advisory) and no `exceljs` (21 MB). Reads only a flat table; never evaluates a formula, follows an external reference or runs a macro; bounded against zip bombs |
+| Column guessing | Recognises what gym software exports — "Mobile No", "DOJ", "Email ID" — and lets the user correct any of it before importing |
+| Messy data handled | Country codes, leading zeros, Excel's scientific notation and serial dates, four date orders, blank rows, a single "Name" column |
+| Problems reported by row number | Against the row in the user's own file, so it can be fixed in Excel rather than guessed at |
+| Batched, resumable commit | 200 rows a call, idempotent per row — a file that times out resumes instead of duplicating |
+| **Member import suite — 42 tests** | **Including a real .xlsx fixture in Excel's own format** |
 
 ### What the isolation suite actually proves
 
@@ -125,7 +132,6 @@ Acting as Gym A, against Gym B's real record ids:
 | Item | Note |
 | --- | --- |
 | Receipt PDFs | The invoice PDF is done; a separate payment receipt is not |
-| Bulk member import from Excel or CSV | Contracts are written; the parser and preview screen are not |
 | Expenses screen | Not built, and therefore not linked |
 | Transferring a membership between branches | Works over the API and is tested; no screen offers it yet |
 | Devanagari and other Indic names on the PDF | pdfkit cannot shape complex scripts. `hasUnsupportedScript` detects the case so it can be reported rather than printed as boxes; a gym recording names in Marathi needs a different renderer |
@@ -185,6 +191,8 @@ Recorded because each one says something about where the bugs actually are.
 | "Collected today" counted a UTC day | A test run that crossed midnight IST | The till figure rolled over at 05:30 rather than midnight, so a late shift's takings landed on the wrong date and the cash count disagreed with the screen. The gym's business day is now one concept used everywhere, including in the pages, which were passing UTC dates into the reports. |
 | A plan created through the API silently charged 0% GST | Rendering a PDF for a plan created over curl | `taxRateId` was optional and defaulted to nothing. GST applies to a gym membership in India, so the gym's default rate now applies when none is named; `null` means a deliberately tax-free plan. An under-collection nobody notices until the return is filed. |
 | Freezing a membership made its row vanish | Phase 2 browser suite | The default filter was "Active", so pausing a membership removed it from the list the receptionist was looking at mid-conversation. "Live" — active plus frozen — is now the default, because that is the question a gym actually asks. |
+| Imported members were created with no branch | Member import suite | A staff member whose read scope is branch-limited sees members by branch, so a member with none is invisible to them — **an import of four hundred members produced an empty members screen**. The import now falls back to the primary branch, exactly as registering by hand does. The worst possible first five minutes with the product. |
+| "Emergency Contact Number" was read as the emergency contact's *name* | Member import suite | The column guesser took the first field whose synonym was a substring, and `emergencyContactName` is declared before `emergencyContactPhone`. A gym's emergency phone number would have been filed as a name — in the one field that exists for an emergency. The longest matching synonym now wins. |
 | The member profile's Edit button went nowhere | Phase 2 browser suite | Same class of problem; the page was built rather than the button removed, since the service behind it was already written and tested. |
 
 ---
@@ -202,6 +210,15 @@ Recorded because each one says something about where the bugs actually are.
 ---
 
 ## Changelog
+
+**18 November 2026 — Bulk member import**
+Upload a CSV or Excel file, see exactly what would happen, then import. The
+spreadsheet reader is hand-written rather than a dependency, because the
+newest `xlsx` on npm carries a prototype-pollution advisory and this parses
+files uploaded by staff. 403 checks passing: 238 tests, 89 HTTP checks and
+76 browser checks. Two more bugs found and fixed — an import that produced
+members no branch-scoped user could see, and a column guesser that filed an
+emergency phone number as a name.
 
 **18 November 2026 — Phase 2: tax invoices, the subscription lifecycle on screen**
 The GST tax invoice as a PDF, the invoices screen, and freeze/extend/cancel
