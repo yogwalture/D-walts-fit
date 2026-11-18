@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { listSubscriptions } from '@gym/core';
+import { listSubscriptions, listBranches } from '@gym/core';
 import { requireActor, holds } from '@/lib/current-session';
 import {
   Badge,
@@ -58,7 +58,14 @@ export default async function SubscriptionsPage({
     freeze: holds(session, 'memberships.subscription.freeze'),
     extend: holds(session, 'memberships.subscription.extend'),
     cancel: holds(session, 'memberships.subscription.cancel'),
+    transfer: holds(session, 'memberships.subscription.transfer'),
   };
+
+  // Only a gym with more than one branch is offered a transfer, so a
+  // single-branch gym is not shown a button that leads nowhere.
+  const branches = permissions.transfer
+    ? await listBranches(ctx, actor.permissions)
+    : [];
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
@@ -167,7 +174,13 @@ export default async function SubscriptionsPage({
               key: 'actions',
               header: '',
               align: 'right',
-              cell: (row) => <SubscriptionActions subscription={row} permissions={permissions} />,
+              cell: (row) => (
+                <SubscriptionActions
+                  subscription={row}
+                  permissions={permissions}
+                  branches={branches.map((branch) => ({ id: branch.id, name: branch.name }))}
+                />
+              ),
             },
           ]}
         />

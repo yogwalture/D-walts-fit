@@ -967,6 +967,9 @@ export interface SubscriptionRow {
   freezeDaysAllowed: number;
   freezeAllowed: boolean;
   transferAllowed: boolean;
+  /** Where they train, which is what a transfer changes. */
+  branchId: string | null;
+  branchName: string | null;
   sessionsTotal: number | null;
   sessionsConsumed: number;
 }
@@ -1066,6 +1069,7 @@ export async function listSubscriptions(
               transferAllowed: true,
             },
           },
+          branch: { select: { id: true, name: true } },
         },
       }),
       tx.subscription.count({ where }),
@@ -1101,6 +1105,8 @@ export async function listSubscriptions(
           freezeDaysAllowed: row.plan.freezeMaxDays,
           freezeAllowed: row.plan.freezeAllowed,
           transferAllowed: row.plan.transferAllowed,
+          branchId: row.branch?.id ?? null,
+          branchName: row.branch?.name ?? null,
           sessionsTotal: row.sessionsTotal,
           sessionsConsumed: row.sessionsConsumed,
         };

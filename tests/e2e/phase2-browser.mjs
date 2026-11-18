@@ -1243,6 +1243,117 @@ try {
     String(afterCount?.quantityOnHand),
   );
 
+  // ------------------------------------------------------------ branches ---
+  // A second branch, and a membership moved to it. The Growth plan is sold
+  // on two branches, so being unable to add one would be selling fresh air.
+  section('Branches');
+  await page.goto(`${BASE}/settings/branches`, { waitUntil: 'domcontentloaded' });
+  check('the branches page renders', (await page.getByRole('heading', { name: 'Branches' }).count()) > 0);
+  check(
+    'the branch made at registration is the main one',
+    /\bMain\b/.test(await page.evaluate(() => document.body.innerText)),
+  );
+
+  await page.getByRole('button', { name: 'Add a branch' }).click();
+  await page.fill('#name', 'Garkheda');
+  await page.fill('#code', 'GKD');
+  await page.fill('#city', 'Chhatrapati Sambhajinagar');
+  await page.getByRole('button', { name: 'Add branch' }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Garkheda'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('a second branch can be added on the Growth plan', true);
+
+  const branchState = await page.evaluate(async () => {
+    const r = await fetch('/api/v1/org/branches');
+    return (await r.json()).data ?? [];
+  });
+  check('there are now two branches', branchState.length === 2, String(branchState.length));
+  check(
+    'and the new one did not take over as the main',
+    branchState.filter((b) => b.isPrimary).length === 1 &&
+      branchState.find((b) => b.code === 'GKD')?.isPrimary === false,
+    JSON.stringify(branchState.map((b) => [b.code, b.isPrimary])),
+  );
+
+  // A membership on a plan that permits a move. The plans sold earlier in
+  // this run do not, and the button is correctly absent for those.
+  const movable = await page.evaluate(async () => {
+    const plan = await (
+      await fetch('/api/v1/memberships/plans', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Transferable Monthly',
+          durationUnit: 'MONTH',
+          durationValue: 1,
+          price: '1500',
+          transferAllowed: true,
+        }),
+      })
+    ).json();
+
+    const member = await (
+      await fetch('/api/v1/members', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ firstName: 'Moving', lastName: 'Member', phone: '9833300001' }),
+      })
+    ).json();
+
+    const sale = await (
+      await fetch('/api/v1/memberships/sell', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          memberId: member.data.id,
+          planId: plan.data.id,
+          payment: { amount: '1500.00', method: 'CASH' },
+        }),
+      })
+    ).json();
+
+    return { planId: plan.data?.id ?? null, subscriptionId: sale.data?.subscriptionId ?? null };
+  });
+  check(
+    'a membership exists on a plan that permits a move',
+    movable.subscriptionId !== null,
+    JSON.stringify(movable),
+  );
+
+  // The move itself, from the row where a receptionist already is.
+  await page.goto(`${BASE}/memberships/subscriptions`, { waitUntil: 'domcontentloaded' });
+  const moveButton = page.getByRole('button', { name: 'Move branch' }).first();
+  await moveButton.waitFor({ timeout: 15_000 });
+  check('a membership offers a move once there is somewhere to move it', true);
+
+  await moveButton.click();
+  await page.fill('input[placeholder="Reason — required"]', 'Moved house');
+  await page.getByRole('button', { name: 'Confirm' }).click();
+  await page.waitForFunction(
+    () => !document.body.innerText.includes('Reason — required'),
+    undefined,
+    { timeout: 20_000 },
+  );
+
+  const moved = await page.evaluate(async () => {
+    const r = await fetch('/api/v1/memberships/subscriptions?status=all&pageSize=50');
+    const body = await r.json();
+    const rows = body.data ?? [];
+    return {
+      atOther: rows.filter((s) => s.branchName === 'Garkheda').length,
+      offered: rows.filter((s) => s.transferAllowed).length,
+    };
+  });
+  check('the membership is now at the other branch', moved.atOther >= 1, JSON.stringify(moved));
+  check(
+    'and only a plan that permits a move offered one',
+    moved.offered >= 1 && moved.offered < 5,
+    JSON.stringify(moved),
+  );
+
   // ------------------------------------------------------------- reports ---
   // What a gym hands the accountant. The GST summary is by rate, because a
   // return is filed by rate and one figure for tax cannot be filed at all.

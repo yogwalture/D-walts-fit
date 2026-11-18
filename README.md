@@ -40,9 +40,10 @@ project's architecture document.
 | The shop | Products, a stock ledger that explains every figure, and a counter that raises a real GST invoice |
 | Rota and leave | Who is in today, weekly shifts, and leave whose approval writes the register |
 | Reports | GST summary by rate, collections by method and by who took them, what is owed by member, and CSV exports |
+| Branches | Added within the plan's limit, with memberships movable between them |
 | Plans and billing tiers | Chosen at registration, and a feature outside the plan explains itself instead of failing |
-| Web application | Next.js 15 — marketing page, auth, and twenty-three screens of the gym portal |
-| Tests | **711 passing**: 40 isolation, 38 auth and plan locks, 30 account flows, 56 operations, 24 invoices, 42 import, 20 expenses, 20 staff, 21 rota and leave, 20 enquiries, 30 classes, 20 shop, 19 reports, 13 contracts, 156 HTTP checks, 162 browser checks |
+| Web application | Next.js 15 — marketing page, auth, and twenty-four screens of the gym portal |
+| Tests | **735 passing**: 40 isolation, 38 auth and plan locks, 30 account flows, 56 operations, 24 invoices, 42 import, 20 expenses, 20 staff, 21 rota and leave, 20 enquiries, 30 classes, 20 shop, 19 reports, 9 branches, 13 contracts, 162 HTTP checks, 171 browser checks |
 
 ---
 
@@ -95,7 +96,7 @@ pnpm dev                 # http://localhost:3000
 To run everything:
 
 ```bash
-pnpm vitest run                                   # 393 tests against a real database
+pnpm vitest run                                   # 402 tests against a real database
 bash tests/e2e/http-smoke.sh                      # 106 checks against a running server
 node tests/e2e/phase2-browser.mjs                 # 93 checks in a real browser
 ```

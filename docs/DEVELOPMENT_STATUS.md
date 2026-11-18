@@ -162,6 +162,10 @@ only when real credentials have been used and a real call has succeeded.
 | Membership report | Renewals told apart from first sales, so churn is visible; no expiries means nothing to measure, not perfect retention |
 | CSV export | Built from the same services as the screen, every cell quoted, formula-leading cells defused, and never held by a shared cache |
 | **Reports suite — 19 tests** | **Including that the rates add up to the reported total** |
+| Branches | Added from Settings, within the plan's limit, with the refusal naming the plan |
+| Moving a membership between branches | On the row where a receptionist already is; the dates and the money are untouched and only a plan that permits it offers the button |
+| The gym owner is organization-wide | A branch row narrows every grant to that branch, which is right for a manager and wrong for the owner |
+| **Branches suite — 9 tests** | **Including that a gym cannot move a membership to another gym's branch** |
 
 ### What the isolation suite actually proves
 
@@ -185,7 +189,6 @@ Acting as Gym A, against Gym B's real record ids:
 
 | Item | Note |
 | --- | --- |
-| Transferring a membership between branches | Works over the API and is tested; no screen offers it yet |
 | Devanagari and other Indic names on the PDF | pdfkit cannot shape complex scripts. `hasUnsupportedScript` detects the case so it can be reported rather than printed as boxes; a gym recording names in Marathi needs a different renderer |
 | Razorpay checkout in the browser | The server half is built and tested; the checkout flow needs real test credentials |
 | First deployment to Hostinger over HTTPS | Blocked: needs a database connection string and a GitHub repository |
@@ -264,6 +267,26 @@ Recorded because each one says something about where the bugs actually are.
 ---
 
 ## Changelog
+
+**18 November 2026 — Branches, and an owner locked into one of them**
+The Growth plan is sold on two branches and nothing in the product could
+add a second one, so the plan limit had nothing to limit. Branches are now
+added from Settings, the limit is enforced in the service with the plan
+named in the refusal, and the main branch is never silently reassigned
+because it is the fallback everywhere. Moving a membership between branches
+— built and tested in Phase 2, with no screen — now sits on the
+subscriptions row, and only appears for a plan that permits it: offering it
+otherwise would have put the refusal after the receptionist had already
+typed a reason in front of the member.
+
+Adding the second branch exposed the cause of the rota bug from earlier
+today. Registration put the owner on the main branch, and a branch row
+narrows every operational grant from ALL to BRANCH. So **an owner who opened
+a second branch could not register a member there, could not see staff
+outside their own branch, and could not move a membership into it.** The
+owner now belongs to no branch, which is what organization-wide means
+everywhere else in the permission engine. 735 checks passing: 402 tests,
+162 HTTP checks and 171 browser checks.
 
 **18 November 2026 — Reports, and the difference between watching and filing**
 The dashboard answers "how are we doing". Reports answer "what do I give the

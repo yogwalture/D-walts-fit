@@ -133,6 +133,12 @@ const NAVIGATION: NavSection[] = [
     heading: 'Settings',
     items: [
       { href: '/settings/users', label: 'Access', permission: 'org.user.read', built: true },
+      {
+        href: '/settings/branches',
+        label: 'Branches',
+        permission: 'org.branch.read',
+        built: true,
+      },
       { href: '/settings/security', label: 'Security', built: true },
     ],
   },

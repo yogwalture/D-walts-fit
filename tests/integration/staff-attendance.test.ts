@@ -46,7 +46,12 @@ let ownerOrgUserId: string;
 const createdOrgIds: string[] = [];
 const createdEmails: string[] = [];
 
-async function addTeamMember(email: string, fullName: string, roleKey: string) {
+async function addTeamMember(
+  email: string,
+  fullName: string,
+  roleKey: string,
+  branchIds: string[] = [],
+) {
   const role = await db.role.findFirstOrThrow({
     where: { organizationId: null, key: roleKey },
     select: { id: true },
@@ -57,7 +62,7 @@ async function addTeamMember(email: string, fullName: string, roleKey: string) {
     email,
     fullName,
     roleId: role.id,
-    branchIds: [],
+    branchIds,
     invitedByUserId: gym.userId,
   });
   await acceptInvitation({
@@ -131,23 +136,38 @@ describe('the staff register', () => {
   });
 
   it('shows a person who belongs to no branch, not only those who do', async () => {
-    // The owner is put on the main branch at registration, which narrows
-    // their ALL grants to BRANCH. A trainer invited without a branch — the
-    // default on the invitation form — has no branch row at all, and
-    // requiring one here hid them from the rota entirely: they could not be
-    // marked in or given a shift.
+    // A manager assigned to a branch has their ALL grants narrowed to
+    // BRANCH. A trainer invited without a branch — the default on the
+    // invitation form — has no branch row at all, and requiring one here
+    // hid them from that manager's rota entirely: they could not be marked
+    // in or given a shift.
     const branchRows = await db.orgUserBranch.count({ where: { orgUserId: trainerOrgUserId } });
     expect(branchRows).toBe(0);
 
-    // Exactly what the web app passes: the owner's own branch ids, which is
-    // what narrows their scope in the first place.
-    const branchScoped = {
-      ...ctx,
-      branchIds: owner.branchIds,
-    };
-    expect(owner.branchIds.length).toBeGreaterThan(0);
+    const branch = await db.branch.findFirstOrThrow({
+      where: { organizationId: gym.organizationId },
+      select: { id: true },
+    });
 
-    const day = await staffDay(branchScoped, owner, {});
+    const managerEmail = `manager.${unique()}@example.com`;
+    createdEmails.push(managerEmail);
+    const manager = await addTeamMember(managerEmail, 'Priya Deshmukh', 'GYM_MANAGER', [
+      branch.id,
+    ]);
+
+    const session = await createSession(authPrisma, {
+      userId: manager.userId,
+      organizationId: gym.organizationId,
+      type: 'WEB',
+    });
+    const resolved = (await resolveSession(authPrisma, session.token)).actor;
+    expect(resolved.permissions.branchIds).toContain(branch.id);
+
+    const day = await staffDay(
+      { organizationId: gym.organizationId, userId: manager.userId, branchIds: resolved.permissions.branchIds },
+      resolved.permissions,
+      {},
+    );
     expect(day.rows.map((r) => r.orgUserId)).toContain(trainerOrgUserId);
   });
 

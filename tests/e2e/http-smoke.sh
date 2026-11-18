@@ -616,6 +616,32 @@ if [ -n "$TYPE_ID" ]; then
   check "one entry per member, booked and waiting alike" "3" "$told"
 fi
 
+# ------------------------------------------------------------ branches ---
+printf '\nbranches\n'
+
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/org/branches")
+check "the branch list is closed to strangers" "401" "$code"
+
+body=$(curl -s -b "$JAR2" "$BASE/api/v1/org/branches")
+has "the registration branch is there and is the main one" "$body" '"isPrimary":true'
+
+BRANCH2=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/org/branches" \
+  -H 'content-type: application/json' -H "origin: $BASE" \
+  -d '{"name":"Smoke Second","code":"SMK2","city":"Chhatrapati Sambhajinagar"}' | json_field id)
+check "a second branch is added on the Growth plan" "true" \
+  "$([ -n "$BRANCH2" ] && echo true || echo false)"
+
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR2" -X POST "$BASE/api/v1/org/branches" \
+  -H 'content-type: application/json' -H "origin: $BASE" \
+  -d '{"name":"Smoke Third","code":"SMK3"}')
+check "and the third is refused, because Growth covers two" "403" "$code"
+
+body=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/org/branches" \
+  -H 'content-type: application/json' -H "origin: $BASE" \
+  -d '{"name":"Smoke Fourth","code":"SMK4"}')
+has "with the plan named rather than a bare refusal" "$body" "Growth plan covers 2"
+has "and a code the mobile app can branch on" "$body" "PLAN_LIMIT_REACHED"
+
 # ------------------------------------------------------------- reports ---
 printf '\nreports\n'
 

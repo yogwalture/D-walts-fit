@@ -133,3 +133,23 @@ export const setGymStatusInput = z.object({
 });
 
 export type InviteStaffInput = z.infer<typeof inviteStaffInput>;
+
+/** A branch of the gym. Codes are upper-cased so MAIN and main are one thing. */
+export const branchInput = z.object({
+  name: z.string().trim().min(2, 'Enter a name').max(120),
+  code: z.string().trim().max(20).optional(),
+  city: z.string().trim().max(80).optional(),
+  addressLine1: z.string().trim().max(200).optional(),
+  phone: z.string().trim().max(20).optional(),
+  timezone: z.string().trim().max(60).optional(),
+  openingTime: z
+    .string()
+    .trim()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM')
+    .optional(),
+  closingTime: z
+    .string()
+    .trim()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM')
+    .optional(),
+});

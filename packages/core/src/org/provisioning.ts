@@ -145,6 +145,13 @@ export async function registerGym(
       select: { id: true },
     });
 
+    // Deliberately assigned to no branch. A branch row narrows every
+    // operational grant from ALL to BRANCH — which is right for a manager
+    // who works at one branch, and wrong for the owner of the gym: pinned
+    // to the branch they registered with, an owner who later opened a
+    // second one could not register a member there, could not see staff
+    // outside it, and could not move a membership into it. No rows means
+    // organization-wide, which is what an owner is.
     await tx.orgUser.create({
       data: {
         organizationId: organization.id,
@@ -152,7 +159,6 @@ export async function registerGym(
         roleId: ownerRole.id,
         status: 'ACTIVE',
         acceptedAt: now,
-        branches: { create: { organizationId: organization.id, branchId: branch.id } },
       },
     });
 

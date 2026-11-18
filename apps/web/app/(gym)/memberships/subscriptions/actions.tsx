@@ -20,6 +20,8 @@ interface Subscription {
   id: string;
   memberName: string;
   status: string;
+  branchId: string | null;
+  transferAllowed: boolean;
   endDate: Date | string;
   freezeDaysUsed: number;
   freezeDaysAllowed: number;
@@ -27,7 +29,7 @@ interface Subscription {
   paidAmount: string;
 }
 
-type Action = 'freeze' | 'unfreeze' | 'extend' | 'cancel';
+type Action = 'freeze' | 'unfreeze' | 'extend' | 'cancel' | 'transfer';
 
 const iso = (value: Date | string): string => new Date(value).toISOString().slice(0, 10);
 
@@ -51,9 +53,12 @@ const rupees = (value: string | number): string =>
 export function SubscriptionActions({
   subscription,
   permissions,
+  branches,
 }: {
   subscription: Subscription;
-  permissions: { freeze: boolean; extend: boolean; cancel: boolean };
+  permissions: { freeze: boolean; extend: boolean; cancel: boolean; transfer: boolean };
+  /** The other branches this membership could move to. */
+  branches: Array<{ id: string; name: string }>;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -67,6 +72,7 @@ export function SubscriptionActions({
   const [days, setDays] = useState('7');
   const [reason, setReason] = useState('');
   const [refund, setRefund] = useState('');
+  const [toBranchId, setToBranchId] = useState('');
 
   const live = subscription.status === 'ACTIVE' || subscription.status === 'FROZEN';
   const frozen = subscription.status === 'FROZEN';
@@ -99,10 +105,19 @@ export function SubscriptionActions({
     return <span className="text-sm text-ink-subtle">—</span>;
   }
 
+  // A transfer needs somewhere to go, and a plan that permits it. Offering
+  // the button otherwise is a button that does nothing — the refusal would
+  // only arrive after the receptionist had typed a reason in front of the
+  // member.
+  const elsewhere = subscription.transferAllowed
+    ? branches.filter((branch) => branch.id !== subscription.branchId)
+    : [];
+
   const canDoAnything =
     (permissions.freeze && (frozen || subscription.freezeAllowed)) ||
     permissions.extend ||
-    permissions.cancel;
+    permissions.cancel ||
+    (permissions.transfer && elsewhere.length > 0);
 
   if (!canDoAnything) {
     return <span className="text-sm text-ink-subtle">—</span>;
@@ -136,6 +151,18 @@ export function SubscriptionActions({
             onClick={() => setAction('extend')}
           >
             Extend
+          </button>
+        )}
+        {permissions.transfer && elsewhere.length > 0 && (
+          <button
+            type="button"
+            className="rounded-control border border-line px-2.5 py-1 text-sm font-medium text-ink-muted hover:bg-canvas"
+            onClick={() => {
+              setToBranchId(elsewhere[0]!.id);
+              setAction('transfer');
+            }}
+          >
+            Move branch
           </button>
         )}
         {permissions.cancel && (
@@ -231,6 +258,36 @@ export function SubscriptionActions({
         </>
       )}
 
+      {action === 'transfer' && (
+        <>
+          <p className="text-sm font-medium text-ink">
+            Move {subscription.memberName}&rsquo;s membership to
+          </p>
+          <select
+            className="input py-1 text-sm"
+            aria-label="Branch to move to"
+            value={toBranchId}
+            onChange={(event) => setToBranchId(event.target.value)}
+          >
+            {elsewhere.map((branch) => (
+              <option key={branch.id} value={branch.id}>
+                {branch.name}
+              </option>
+            ))}
+          </select>
+          <p className="text-sm text-ink-subtle">
+            The dates, the money and the member stay exactly as they are. Only where they train
+            changes, and the move is recorded on the membership&rsquo;s history.
+          </p>
+          <input
+            className="input py-1 text-sm"
+            placeholder="Reason — required"
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </>
+      )}
+
       {action === 'cancel' && (
         <>
           <p className="text-sm font-medium text-ink">
@@ -265,12 +322,15 @@ export function SubscriptionActions({
           className="btn-primary px-3 py-1 text-sm"
           disabled={
             busy ||
-            ((action === 'extend' || action === 'cancel') && !reason.trim())
+            ((action === 'extend' || action === 'cancel' || action === 'transfer') &&
+              !reason.trim())
           }
           onClick={() => {
             if (action === 'freeze') void send('freeze', { fromDate, toDate, reason: reason.trim() || undefined });
             if (action === 'unfreeze') void send('unfreeze', {});
             if (action === 'extend') void send('extend', { days: Number(days), reason: reason.trim() });
+            if (action === 'transfer')
+              void send('transfer', { toBranchId, reason: reason.trim() });
             if (action === 'cancel')
               void send('cancel', {
                 reason: reason.trim(),

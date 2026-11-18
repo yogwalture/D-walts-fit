@@ -161,7 +161,12 @@ describe('gym registration', () => {
 
     expect(org.orgUsers).toHaveLength(1);
     expect(org.orgUsers[0]!.role.key).toBe('GYM_OWNER');
-    expect(org.orgUsers[0]!.branches).toHaveLength(1);
+    // The owner belongs to no branch on purpose. A branch row narrows every
+    // operational grant from ALL to BRANCH, which is right for a manager at
+    // one branch and wrong for the person who owns the gym: pinned to the
+    // branch they registered with, they could not register a member at a
+    // second one, nor see staff outside it.
+    expect(org.orgUsers[0]!.branches).toHaveLength(0);
   });
 
   it('writes an audit row for the registration', async () => {
