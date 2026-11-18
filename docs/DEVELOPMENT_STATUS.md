@@ -184,6 +184,16 @@ only when real credentials have been used and a real call has succeeded.
 | Expiry reminders | A daily cron run, keyed on the member, the subscription and the day, so firing twice cannot message anybody twice |
 | One environment file | The web app reads the repository's `.env` rather than keeping its own copy — two files that drift is a key rotated in one place and still failing in the other |
 | **Messaging suite — 30 tests** | **Including that a timeout is retried, a duplicate send is not, and a forged receipt is refused** |
+| **— Phase 5 —** | |
+| Member sign-in | A number and a code, because a member signs in three times a year and would reset a password every time |
+| Login codes go over WhatsApp | Where the gym has it connected and an approved authentication template; otherwise email, and never a claim that it sent |
+| The member id comes from the session | Never from a URL or a body — there is no input through which to ask for somebody else's invoices |
+| A member's own page | How long is left, what is owed, visits, and what they have booked — the four things they open it for |
+| Classes, as one list | What is on and what they have booked are the same screen in a member's head; a separate bookings page is where double bookings come from |
+| Booking reuses the staff service | Two implementations of "is there a place left" is how a class is oversold by the app while the desk shows it full |
+| Self check-in | The entrance QR rotates, so it only works at the gym, and the eligibility rules are the door's own |
+| Installable | Manifest served from configuration so a white-label gym installs its own name; the service worker caches the shell and **never** the API |
+| **Member portal suite — 18 tests** | **Including that a member cannot reach another member's money or another gym's anything** |
 
 ### What the isolation suite actually proves
 

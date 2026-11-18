@@ -25,6 +25,9 @@ export interface OtpRequestResult {
   memberName?: string;
   channel?: 'sms' | 'whatsapp' | 'email';
   destination?: string;
+  /** Who and where, so the caller can send over the gym's own channel. */
+  memberId?: string;
+  organizationId?: string;
 }
 
 function isEmail(identifier: string): boolean {
@@ -91,6 +94,8 @@ export async function requestMemberOtp(input: {
     memberName: [member.firstName, member.lastName].filter(Boolean).join(' '),
     channel: isEmail(identifier) ? 'email' : 'whatsapp',
     destination: isEmail(identifier) ? member.email! : member.phone,
+    memberId: member.id,
+    organizationId: organization.id,
   };
 }
 

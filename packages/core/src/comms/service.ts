@@ -1159,3 +1159,98 @@ export async function queueExpiryReminders(
 
   return run;
 }
+
+// --------------------------------------------------------- the login code ---
+
+export type AuthCodeChannel = 'whatsapp' | 'none';
+
+/**
+ * Sends a login code over WhatsApp, if this gym can.
+ *
+ * Meta requires an authentication-category template for a one-time code, so
+ * this needs one approved and recorded. When there isn't one — or WhatsApp
+ * is not connected — it returns 'none' and the caller falls back to email
+ * or the log. It never pretends to have sent anything.
+ *
+ * Sent directly rather than queued: a login code that waits for the next
+ * cron pass is a login code nobody uses.
+ */
+export async function sendAuthCode(input: {
+  organizationId: string;
+  memberId: string;
+  phone: string;
+  code: string;
+}): Promise<{ channel: AuthCodeChannel; reason?: string }> {
+  const db = getJobsClient();
+  const { sendWhatsappTemplate, toWhatsappNumber } = await import('@gym/integrations');
+
+  const settings = await db.whatsappSetting.findFirst({
+    where: { organizationId: input.organizationId },
+    select: { isEnabled: true, phoneNumberId: true, accessTokenEncrypted: true },
+  });
+
+  if (!settings?.isEnabled || !settings.phoneNumberId || !settings.accessTokenEncrypted) {
+    return { channel: 'none', reason: 'WhatsApp is not connected for this gym.' };
+  }
+
+  const template = await db.notificationTemplate.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      channel: 'WHATSAPP',
+      category: 'AUTHENTICATION',
+      approvalStatus: 'APPROVED',
+      isActive: true,
+      providerTemplateName: { not: null },
+    },
+    select: { id: true, language: true, providerTemplateName: true, variables: true },
+  });
+
+  if (!template) {
+    return {
+      channel: 'none',
+      reason: 'This gym has no approved authentication template on WhatsApp.',
+    };
+  }
+
+  let accessToken: string;
+  try {
+    accessToken = decryptSecret(settings.accessTokenEncrypted);
+  } catch {
+    return { channel: 'none', reason: 'The stored WhatsApp token could not be read.' };
+  }
+
+  const outcome = await sendWhatsappTemplate(
+    { phoneNumberId: settings.phoneNumberId, accessToken },
+    {
+      to: toWhatsappNumber(input.phone),
+      templateName: template.providerTemplateName!,
+      language: template.language,
+      variables: [input.code],
+    },
+  );
+
+  // Recorded either way, because "did the code go out" is the first
+  // question when a member says they never got one.
+  await db.message.create({
+    data: {
+      organizationId: input.organizationId,
+      templateId: template.id,
+      channel: 'WHATSAPP',
+      category: 'AUTHENTICATION',
+      recipientType: 'MEMBER',
+      recipientId: input.memberId,
+      toAddress: input.phone,
+      status: outcome.ok ? 'SENT' : 'FAILED',
+      ...(outcome.ok
+        ? { sentAt: new Date(), providerMessageId: outcome.providerMessageId }
+        : { failedAt: new Date(), errorCode: outcome.code, errorMessage: outcome.message }),
+      // The code itself is never stored: the message row says a code was
+      // sent, not what it was.
+      renderedBody: 'A login code was sent.',
+    },
+  });
+
+  return outcome.ok
+    ? { channel: 'whatsapp' }
+    : { channel: 'none', reason: outcome.message };
+}

@@ -943,6 +943,33 @@ rm -f "$JAR3"
 
 rm -f "$JAR2"
 
+# ---------------------------------------------------------- the member app ---
+printf '\nthe member app\n'
+
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/member-login")
+check "the member sign-in page is public" "200" "$code"
+
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/manifest.webmanifest")
+check "the install manifest is public" "200" "$code"
+
+body=$(curl -s "$BASE/manifest.webmanifest")
+has "and opens on the member's own page" "$body" '"start_url":"/my"'
+
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/offline")
+check "the offline page loads with no session" "200" "$code"
+
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/my")
+case "$code" in 302|303|307|308) ok "a member page is closed to signed-out visitors";;
+  *) bad "a member page is closed to signed-out visitors" "3xx" "$code";; esac
+
+# The member endpoints take no member id, so there is nothing to substitute.
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/me")
+check "a member's own page needs a session" "401" "$code"
+
+# Staff hold no self-service permissions: the portal is not a back door.
+body=$(curl -s -b "$JAR" "$BASE/api/v1/me")
+has "and is refused to a staff session" "$body" "PERMISSION_DENIED"
+
 # ------------------------------------------------------- every screen ---
 # A brand-new gym with no data at all. Empty states are where 500s hide:
 # every one of these pages is reached by a link in the sidebar, so one of

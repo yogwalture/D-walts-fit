@@ -11,7 +11,7 @@ not code.
 
 ## Status
 
-**Phase 4 — Communication. In progress.**
+**Phase 5 — Member experience. In progress.**
 See [`docs/DEVELOPMENT_STATUS.md`](docs/DEVELOPMENT_STATUS.md) for what is
 complete, pending and blocked. The full architecture and roadmap live in the
 project's architecture document.
@@ -41,10 +41,11 @@ project's architecture document.
 | Rota and leave | Who is in today, weekly shifts, and leave whose approval writes the register |
 | Reports | GST summary by rate, collections by method and by who took them, what is owed by member, and CSV exports |
 | Branches | Added within the plan's limit, with memberships movable between them |
+| Member app | Sign in with a code, see your membership and dues, book classes, check yourself in — installable, and it never caches the API |
 | Messaging | WhatsApp Cloud API with per-gym encrypted credentials, approved templates, delivery receipts, STOP honoured on arrival, daily expiry reminders, and a queue that never claims to have sent what it has not |
 | Plans and billing tiers | Chosen at registration, and a feature outside the plan explains itself instead of failing |
-| Web application | Next.js 15 — marketing page, auth, and twenty-six screens of the gym portal |
-| Tests | **803 passing**: 40 isolation, 38 auth and plan locks, 30 account flows, 56 operations, 24 invoices, 42 import, 20 expenses, 20 staff, 21 rota and leave, 20 enquiries, 30 classes, 20 shop, 19 reports, 9 branches, 30 messaging, 13 contracts, 187 HTTP checks, 184 browser checks |
+| Web application | Next.js 15 — marketing page, auth, and twenty-six screens of the gym portal, plus the member app |
+| Tests | **844 passing**: 40 isolation, 38 auth and plan locks, 30 account flows, 56 operations, 24 invoices, 42 import, 20 expenses, 20 staff, 21 rota and leave, 20 enquiries, 30 classes, 20 shop, 19 reports, 9 branches, 30 messaging, 18 member portal, 13 contracts, 194 HTTP checks, 200 browser checks |
 
 ---
 
@@ -97,7 +98,7 @@ pnpm dev                 # http://localhost:3000
 To run everything:
 
 ```bash
-pnpm vitest run                                   # 432 tests against a real database
+pnpm vitest run                                   # 450 tests against a real database
 bash tests/e2e/http-smoke.sh                      # 106 checks against a running server
 node tests/e2e/phase2-browser.mjs                 # 93 checks in a real browser
 ```

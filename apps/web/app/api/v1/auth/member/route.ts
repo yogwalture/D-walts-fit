@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { memberOtpRequestInput, memberOtpVerifyInput } from '@gym/contracts';
-import { requestMemberOtp, resolveSession, verifyMemberOtp } from '@gym/core';
+import { requestMemberOtp, resolveSession, sendAuthCode, verifyMemberOtp } from '@gym/core';
 import { getEmailProvider, memberOtpEmail } from '@gym/integrations';
 import { route } from '@/lib/handler';
 import { basePrismaForAuth } from '@/lib/db';
@@ -24,18 +24,32 @@ export const POST = route(
       ipAddress,
     });
 
-    if (result.code && result.channel === 'email' && result.destination) {
-      await getEmailProvider().send(
-        memberOtpEmail({
-          to: result.destination,
-          memberName: result.memberName ?? 'there',
-          code: result.code,
-          gymName: input.organizationSlug,
-        }),
-      );
+    if (result.code && result.memberId && result.organizationId && result.destination) {
+      // WhatsApp first, where the gym has it connected and an approved
+      // authentication template: it is the channel members actually read.
+      // It says plainly when it could not, and the code falls back to
+      // email rather than going nowhere.
+      const viaWhatsapp =
+        result.channel !== 'email'
+          ? await sendAuthCode({
+              organizationId: result.organizationId,
+              memberId: result.memberId,
+              phone: result.destination,
+              code: result.code,
+            })
+          : { channel: 'none' as const };
+
+      if (viaWhatsapp.channel === 'none') {
+        await getEmailProvider().send(
+          memberOtpEmail({
+            to: result.destination,
+            memberName: result.memberName ?? 'there',
+            code: result.code,
+            gymName: input.organizationSlug,
+          }),
+        );
+      }
     }
-    // WhatsApp delivery lands in Phase 4; until then the code goes to the
-    // server log via the console email provider rather than nowhere.
 
     return NextResponse.json(
       { data: { message: 'If that account exists, a code is on its way.' } },

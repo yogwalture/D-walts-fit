@@ -30,6 +30,12 @@ const PUBLIC_PATHS = [
   '/reset-password',
   '/accept-invitation',
   '/member-login',
+  // The installed app's offline page and its manifest have to load with no
+  // session: a member whose session expired should meet the login screen,
+  // not a redirect loop inside a standalone window.
+  '/offline',
+  '/manifest.webmanifest',
+  '/sw.js',
 ];
 
 const PUBLIC_PREFIXES = [

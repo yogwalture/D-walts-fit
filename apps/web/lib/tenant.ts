@@ -26,3 +26,16 @@ export function tenantOf(actor: ActorContext): TenantRequestContext {
     branchIds: actor.permissions.branchIds?.length ? actor.permissions.branchIds : undefined,
   };
 }
+
+/**
+ * The same, plus which member the session belongs to.
+ *
+ * Separate from `tenantOf` so the member id can only reach a service
+ * through a call that asked for it, and only ever from the session. There
+ * is deliberately no way to pass one in.
+ */
+export function memberContextOf(
+  actor: ActorContext,
+): TenantRequestContext & { memberId: string | null } {
+  return { ...tenantOf(actor), memberId: actor.memberId ?? null };
+}

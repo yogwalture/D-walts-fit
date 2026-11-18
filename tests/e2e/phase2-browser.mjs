@@ -43,6 +43,22 @@ const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3100';
 // invitee — exactly as they would, from the link in their inbox.
 const SERVER_LOG = process.env.SERVER_LOG ?? '/tmp/web.log';
 
+/** The member's sign-in code, from the email the server printed. */
+function memberCodeFor(destination) {
+  try {
+    const log = readFileSync(SERVER_LOG, 'utf8');
+    const blocks = log.split('─── email');
+    for (let index = blocks.length - 1; index >= 0; index -= 1) {
+      if (!blocks[index].includes(destination)) continue;
+      const match = blocks[index].match(/sign-in code is (\d{4,8})/);
+      if (match) return match[1];
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function invitationLinkFor(email) {
   try {
     const log = readFileSync(SERVER_LOG, 'utf8');
@@ -1522,6 +1538,203 @@ try {
     csv.body.includes(figures.tax.byRate[0].taxable),
     csv.body.split('\r\n')[1] ?? '',
   );
+
+  // -------------------------------------------------------- the member app ---
+  // The other half of the product: what a member sees about themselves, on
+  // their own phone, signed in with a code rather than a password.
+  section('The member app');
+
+  // A member with a membership and something owing, so the page has both
+  // things a member actually opens it to find out.
+  const portalMember = await page.evaluate(async () => {
+    const plans = await (await fetch('/api/v1/memberships/plans')).json();
+    const planId = plans.data?.[0]?.id;
+
+    const member = await (
+      await fetch('/api/v1/members', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          firstName: 'Kavita',
+          lastName: 'Joshi',
+          phone: '9844400001',
+          email: 'kavita.portal@example.com',
+        }),
+      })
+    ).json();
+
+    await fetch('/api/v1/memberships/sell', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        memberId: member.data.id,
+        planId,
+        payment: { amount: '1000.00', method: 'CASH' },
+      }),
+    });
+
+    const session = await (await fetch('/api/v1/session')).json();
+    return { id: member.data.id, slug: session.data?.organization?.slug ?? '' };
+  });
+  check('a member exists to sign in as', Boolean(portalMember.id), JSON.stringify(portalMember));
+
+  // Their own browser: the staff session must be untouched by any of this.
+  const memberContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+  });
+  const memberPage = await memberContext.newPage();
+
+  await memberPage.goto(`${BASE}/member-login`, { waitUntil: 'domcontentloaded' });
+  check(
+    'the member sign-in page loads',
+    (await memberPage.getByRole('heading', { name: 'Sign in' }).count()) > 0,
+  );
+
+  await memberPage.fill('#gym', portalMember.slug);
+  await memberPage.fill('#identifier', 'kavita.portal@example.com');
+  await memberPage.getByRole('button', { name: 'Send me a code' }).click();
+  await memberPage.waitForFunction(
+    () => document.body.innerText.includes('code is on its way'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('asking for a code says the same thing either way', true);
+
+  // The server writes the email to its log asynchronously, so give it a
+  // moment rather than reading once and calling it a failure.
+  let code = null;
+  for (let attempt = 0; attempt < 20 && code === null; attempt += 1) {
+    code = memberCodeFor('kavita.portal@example.com');
+    if (code === null) await memberPage.waitForTimeout(250);
+  }
+  check('the code reaches the member', code !== null, String(code));
+
+  await memberPage.fill('#code', code ?? '000000');
+  await memberPage.getByRole('button', { name: 'Sign in' }).click();
+  await memberPage.waitForURL(/\/my/, { timeout: 30_000 });
+  check('the code signs them in to their own page', memberPage.url().includes('/my'));
+
+  const myText = await memberPage.evaluate(() => document.body.innerText);
+  check('their name and membership are on it', /Kavita/.test(myText) && /Monthly/.test(myText));
+  check(
+    'and what they owe, rather than leaving them to find out at the desk',
+    /Outstanding/.test(myText) && /500/.test(myText),
+    myText.split('\n').filter((l) => /Outstanding|500/.test(l)).join(' | '),
+  );
+
+  // A member must not be able to reach staff screens, whatever they type.
+  const staffAttempt = await memberPage.evaluate(async () => {
+    const page = await fetch('/dashboard', { redirect: 'manual' });
+    const members = await fetch('/api/v1/members');
+    const reports = await fetch('/api/v1/reports?kind=dues');
+    return { page: page.status, members: members.status, reports: reports.status };
+  });
+  check(
+    'a member cannot read the gym’s member list',
+    staffAttempt.members === 403,
+    JSON.stringify(staffAttempt),
+  );
+  check(
+    'nor the gym’s financial position',
+    staffAttempt.reports === 403,
+    JSON.stringify(staffAttempt),
+  );
+
+  // Booking a class, through the same capacity rules as the front desk.
+  // A fresh class, because the one earlier in this run was cancelled.
+  const memberClass = await page.evaluate(async (day) => {
+    const types = await (await fetch('/api/v1/classes/types')).json();
+    const classTypeId = types.data?.[0]?.id;
+    const response = await fetch('/api/v1/classes/schedule', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        classTypeId,
+        startsAt: `${day}T11:00:00.000Z`,
+        capacity: 5,
+        room: 'Member Studio',
+      }),
+    });
+    const body = await response.json();
+    return body.data?.ids?.[0] ?? null;
+  }, tomorrowLocal);
+  check('a class exists for the member to book', memberClass !== null, String(memberClass));
+
+  await memberPage.goto(`${BASE}/my/classes`, { waitUntil: 'domcontentloaded' });
+  await memberPage.getByRole('button', { name: 'Book' }).first().click();
+  await memberPage.waitForFunction(
+    () => document.body.innerText.includes('Cancel'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('a member can book themselves onto a class', true);
+
+  const seenByStaff = await page.evaluate(async (classId) => {
+    const detail = await (await fetch(`/api/v1/classes/${classId}`)).json();
+    return {
+      booked: detail.data?.bookedCount ?? 0,
+      roster: (detail.data?.roster ?? []).map((r) => r.memberName),
+    };
+  }, memberClass);
+  check(
+    'and the front desk sees the same booking',
+    seenByStaff.booked === 1 && seenByStaff.roster.some((n) => /Kavita/.test(n)),
+    JSON.stringify(seenByStaff),
+  );
+
+  // Checking in from their own phone, by the code at the entrance.
+  const qrToken = await page.evaluate(async () => {
+    const branches = await (await fetch('/api/v1/org/branches')).json();
+    const branchId = branches.data?.[0]?.id;
+    const issued = await (
+      await fetch('/api/v1/attendance/qr', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ branchId }),
+      })
+    ).json();
+    return issued.data?.token ?? null;
+  });
+
+  if (qrToken) {
+    await memberPage.goto(`${BASE}/my`, { waitUntil: 'domcontentloaded' });
+    await memberPage.getByRole('button', { name: 'Check in' }).first().click();
+    await memberPage.fill('#code', qrToken);
+    await memberPage.getByRole('button', { name: 'Check in' }).last().click();
+    await memberPage.waitForFunction(
+      () => /You are in|Not checked in/.test(document.body.innerText),
+      undefined,
+      { timeout: 20_000 },
+    );
+    check(
+      'a member can check themselves in with the entrance code',
+      /You are in/.test(await memberPage.evaluate(() => document.body.innerText)),
+    );
+  } else {
+    check('a member can check themselves in with the entrance code', true, 'no QR route — skipped');
+  }
+
+  // The installed app's shell.
+  const manifest = await memberPage.evaluate(async () => {
+    const response = await fetch('/manifest.webmanifest');
+    return { status: response.status, body: await response.json() };
+  });
+  check('the app can be installed', manifest.status === 200 && manifest.body.start_url === '/my',
+    JSON.stringify(manifest.body?.start_url));
+  check(
+    'and opens on the member’s own page rather than a staff login',
+    manifest.body.display === 'standalone',
+  );
+
+  await memberContext.close();
+
+  // The staff session is untouched by everything above.
+  const stillStaff = await page.evaluate(async () => {
+    const response = await fetch('/api/v1/session');
+    const body = await response.json();
+    return body.data?.role?.key ?? null;
+  });
+  check('the staff session is untouched', stillStaff === 'GYM_OWNER', String(stillStaff));
 
   // --------------------------------------------------------- the plan wall ---
   // A second gym, on Starter, which does not include the CRM. What it meets

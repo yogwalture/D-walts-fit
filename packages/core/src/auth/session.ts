@@ -14,6 +14,14 @@ export interface ActorContext {
   organizationId: string | null;
   permissions: ResolvedPermissions;
   isPlatformAdmin: boolean;
+  /**
+   * The member record this user is, where they are one.
+   *
+   * Resolved from the session, never from a parameter: a portal that took
+   * the member id from the URL would show anyone who edited it somebody
+   * else's invoices.
+   */
+  memberId?: string | null;
 }
 
 // ------------------------------------------------------------- create ---
@@ -165,6 +173,7 @@ export async function resolveSession(
         organizationId: null,
         permissions,
         isPlatformAdmin: session.user.isPlatformAdmin,
+        memberId: null,
       },
       view: {
         user: {
@@ -176,6 +185,7 @@ export async function resolveSession(
         },
         organization: null,
         role: null,
+        member: null,
         permissions: permissions.grants,
         planLocked: permissions.lockedByPlan,
         branchIds: [],
@@ -196,7 +206,7 @@ export async function resolveSession(
   const resolved = await withTenant(
     { organizationId: session.organizationId, userId: session.userId },
     async (tx) => {
-      const [orgUser, organization, subscription] = await Promise.all([
+      const [orgUser, organization, member, subscription] = await Promise.all([
         tx.orgUser.findFirst({
           where: { userId: session.userId, organizationId: session.organizationId! },
           select: {
@@ -227,6 +237,13 @@ export async function resolveSession(
             },
           },
         }),
+        // Which member record this user is, where they are one. A member
+        // portal that took the member id from a URL would show somebody
+        // else's invoices to anyone who edited it.
+        tx.member.findFirst({
+          where: { userId: session.userId, deletedAt: null },
+          select: { id: true, memberCode: true, firstName: true, lastName: true },
+        }),
         tx.tenantSubscription.findFirst({
           select: {
             status: true,
@@ -236,7 +253,7 @@ export async function resolveSession(
         }),
       ]);
 
-      return { orgUser, organization, subscription };
+      return { orgUser, organization, member, subscription };
     },
   );
 
@@ -258,6 +275,7 @@ export async function resolveSession(
       organizationId: session.organizationId,
       permissions,
       isPlatformAdmin: session.user.isPlatformAdmin,
+      memberId: resolved.member?.id ?? null,
     },
     view: {
       user: {
@@ -279,6 +297,13 @@ export async function resolveSession(
         },
       },
       role: { key: resolved.orgUser.role.key, name: resolved.orgUser.role.name },
+      member: resolved.member
+        ? {
+            id: resolved.member.id,
+            memberCode: resolved.member.memberCode,
+            name: `${resolved.member.firstName} ${resolved.member.lastName ?? ''}`.trim(),
+          }
+        : null,
       permissions: permissions.grants,
       planLocked: permissions.lockedByPlan,
       branchIds: permissions.branchIds,

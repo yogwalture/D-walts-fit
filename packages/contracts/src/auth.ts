@@ -92,6 +92,8 @@ export interface SessionView {
     branding: { displayName: string | null; primaryColor: string; accentColor: string };
   } | null;
   role: { key: string; name: string } | null;
+  /** Set when the signed-in user is a member of this gym, not staff. */
+  member: { id: string; memberCode: string; name: string } | null;
   /** Resolved permission keys mapped to their scope. */
   permissions: Record<string, 'ALL' | 'BRANCH' | 'OWN'>;
   /**
