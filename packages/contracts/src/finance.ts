@@ -60,15 +60,24 @@ export const refundRequestInput = z.object({
   method: paymentMethod.optional(),
 });
 
+/**
+ * A spend.
+ *
+ * `amount` is what the thing cost and `taxAmount` is the tax on it, kept
+ * apart because that is how a supplier's bill reads and the only way input
+ * tax credit can be claimed.
+ */
 export const expenseInput = z.object({
+  title: z.string().trim().min(2, 'What was this for?').max(200),
   categoryId: uuid.optional(),
   amount: money,
+  taxAmount: money.optional(),
   spentOn: isoDate,
-  vendor: z.string().trim().max(160).optional(),
-  description: z.string().trim().max(500).optional(),
+  description: z.string().trim().max(1000).optional(),
   branchId: uuid.optional(),
-  method: paymentMethod.optional(),
+  method: counterPaymentMethod.optional(),
   referenceNumber: z.string().trim().max(60).optional(),
+  isRecurring: z.boolean().default(false),
 });
 
 /**

@@ -257,7 +257,14 @@ export default async function MemberPage({
                       <p className="text-base text-ink">{rupees(payment.amount)}</p>
                       <p className="text-sm text-ink-muted">
                         {spoken(payment.method)} ·{' '}
-                        <span className="tabular-nums">{payment.receiptCode}</span>
+                        <a
+                          href={`/api/v1/finance/payments/${payment.id}/receipt`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="tabular-nums text-accent hover:underline"
+                        >
+                          {payment.receiptCode}
+                        </a>
                       </p>
                     </div>
                     <span className="shrink-0 text-sm text-ink-muted">

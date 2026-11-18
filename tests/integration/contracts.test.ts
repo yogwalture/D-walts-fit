@@ -63,6 +63,67 @@ describe('contract enums match the schema', () => {
   });
 });
 
+describe('permission keys', () => {
+  /**
+   * Every key the code checks must exist in the registry.
+   *
+   * `finance.expense.create` did not — the service invented it, the
+   * registry had `finance.expense.manage`, and the result was a gym owner
+   * who could not record an expense in their own gym. Nothing in the
+   * typechecker can catch a string that does not match another string, so
+   * this does.
+   */
+  it('are all in the registry', async () => {
+    const { readFileSync, readdirSync, statSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { PrismaClient } = await import('@prisma/client');
+
+    const db = new PrismaClient({ datasources: { db: { url: process.env.JOBS_DATABASE_URL } } });
+    const registry = new Set(
+      (await db.permission.findMany({ select: { key: true } })).map((row) => row.key),
+    );
+    await db.$disconnect();
+
+    expect(registry.size, 'the registry is seeded').toBeGreaterThan(100);
+
+    const roots = ['packages/core/src', 'apps/web/app', 'apps/web/lib'];
+    const files: string[] = [];
+
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        if (entry === 'node_modules' || entry.startsWith('.')) continue;
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (/\.(ts|tsx)$/.test(entry)) files.push(full);
+      }
+    };
+    for (const root of roots) walk(root);
+
+    // Keys as the code writes them: requirePermission(x, 'a.b.c'),
+    // scopeOf(x, 'a.b.c'), permission: 'a.b.c', holds(session, 'a.b.c').
+    const pattern =
+      /(?:requirePermission|requireAnyPermission|scopeOf|branchFilter|holds)\([^)]*?['"]([a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+)['"]|permission:\s*['"]([a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+)['"]/g;
+
+    const used = new Map<string, string>();
+    for (const file of files) {
+      const text = readFileSync(file, 'utf8');
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(text)) !== null) {
+        const key = match[1] ?? match[2];
+        if (key && !used.has(key)) used.set(key, file);
+      }
+    }
+
+    expect(used.size, 'found permission checks to verify').toBeGreaterThan(20);
+
+    const invented = [...used.entries()]
+      .filter(([key]) => !registry.has(key))
+      .map(([key, file]) => `${key} (${file})`);
+
+    expect(invented, 'every permission the code checks must be in the registry').toEqual([]);
+  });
+});
+
 describe('input coercion', () => {
   it('normalises Indian mobile numbers however they are typed', () => {
     for (const input of ['9876543210', '+919876543210', '09876543210', '98765 43210', '98765-43210']) {

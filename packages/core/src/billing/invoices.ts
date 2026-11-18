@@ -545,3 +545,166 @@ export function rupeesInWords(amount: string | number): string {
 export function displayAmount(amount: string): string {
   return formatRupees(toPaise(amount));
 }
+
+// --------------------------------------------------------------- receipts ---
+
+export interface ReceiptDocument {
+  receipt: {
+    code: string;
+    receivedAt: Date;
+    amount: string;
+    amountInWords: string;
+    method: string;
+    referenceNumber: string | null;
+    status: string;
+    notes: string | null;
+  };
+  supplier: {
+    name: string;
+    legalName: string | null;
+    gstin: string | null;
+    addressLines: string[];
+    phone: string | null;
+    email: string | null;
+  };
+  payer: {
+    name: string;
+    memberCode: string | null;
+    phone: string | null;
+  };
+  /** What the money was against, when it was against something. */
+  towards: {
+    invoiceCode: string | null;
+    invoiceTotal: string | null;
+    invoiceDue: string | null;
+    planName: string | null;
+    periodFrom: Date | null;
+    periodTo: Date | null;
+  };
+  collectedBy: string | null;
+}
+
+/**
+ * A payment receipt.
+ *
+ * Not the same document as the invoice and not a restyling of it. An invoice
+ * says what is owed; a receipt says what was handed over, when, and by what
+ * means — which is the piece of paper a member who paid ₹1,500 in cash at the
+ * desk actually wants, and the one a gym needs when that member comes back in
+ * March saying they already paid.
+ */
+export async function getReceiptDocument(
+  ctx: InvoiceContext,
+  permissions: ResolvedPermissions,
+  paymentId: string,
+): Promise<ReceiptDocument> {
+  requirePermission(permissions, 'finance.payment.read');
+
+  return withTenant(ctx, async (tx) => {
+    const payment = await tx.payment.findFirst({
+      where: { id: paymentId },
+      select: {
+        receiptCode: true,
+        amount: true,
+        method: true,
+        status: true,
+        referenceNumber: true,
+        receivedAt: true,
+        notes: true,
+        organization: { select: { name: true, legalName: true } },
+        branch: {
+          select: {
+            addressLine1: true,
+            addressLine2: true,
+            city: true,
+            state: true,
+            postalCode: true,
+            phone: true,
+            email: true,
+          },
+        },
+        member: {
+          select: { memberCode: true, firstName: true, lastName: true, phone: true },
+        },
+        invoice: { select: { invoiceCode: true, total: true, amountDue: true } },
+        subscription: {
+          select: {
+            startDate: true,
+            endDate: true,
+            plan: { select: { name: true } },
+          },
+        },
+        recordedByUserId: true,
+      },
+    });
+
+    if (!payment) throw new AppError('NOT_FOUND', 'Receipt not found.');
+
+    // `users` is global rather than tenant data, so the staff member who took
+    // the money is looked up separately. Worth having on the receipt: a
+    // member disputing a payment in March is really asking who they handed it
+    // to.
+    const collectedBy = payment.recordedByUserId
+      ? await tx.user.findFirst({
+          where: { id: payment.recordedByUserId },
+          select: { fullName: true },
+        })
+      : null;
+
+    const settings = await tx.orgSetting.findFirst({
+      select: {
+        gstin: true,
+        legalAddress: true,
+        contactPhone: true,
+        contactEmail: true,
+      },
+    });
+
+    const branch = payment.branch;
+    const legal = (settings?.legalAddress ?? null) as Record<string, string> | null;
+
+    const addressLines = [
+      branch?.addressLine1 ?? legal?.line1,
+      branch?.addressLine2 ?? legal?.line2,
+      [branch?.city ?? legal?.city, branch?.state ?? legal?.state].filter(Boolean).join(', '),
+      branch?.postalCode ?? legal?.postalCode,
+    ].filter((part): part is string => Boolean(part && part.trim()));
+
+    return {
+      receipt: {
+        code: payment.receiptCode ?? '—',
+        receivedAt: payment.receivedAt,
+        amount: amount(payment.amount),
+        amountInWords: rupeesInWords(amount(payment.amount)),
+        method: payment.method,
+        referenceNumber: payment.referenceNumber,
+        status: payment.status,
+        notes: payment.notes,
+      },
+      supplier: {
+        name: payment.organization.name,
+        legalName: payment.organization.legalName,
+        gstin: settings?.gstin ?? null,
+        addressLines,
+        phone: branch?.phone ?? settings?.contactPhone ?? null,
+        email: branch?.email ?? settings?.contactEmail ?? null,
+      },
+      payer: {
+        name: payment.member
+          ? [payment.member.firstName, payment.member.lastName].filter(Boolean).join(' ')
+          : 'Walk-in',
+        memberCode: payment.member?.memberCode ?? null,
+        phone: payment.member?.phone ?? null,
+      },
+      towards: {
+        invoiceCode: payment.invoice?.invoiceCode ?? null,
+        invoiceTotal: payment.invoice ? amount(payment.invoice.total) : null,
+        invoiceDue: payment.invoice ? amount(payment.invoice.amountDue) : null,
+        planName: payment.subscription?.plan.name ?? null,
+        periodFrom: payment.subscription?.startDate ?? null,
+        periodTo: payment.subscription?.endDate ?? null,
+      },
+      collectedBy: collectedBy?.fullName ?? null,
+    };
+  });
+}

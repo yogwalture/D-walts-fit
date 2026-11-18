@@ -108,6 +108,12 @@ only when real credentials have been used and a real call has succeeded.
 | Problems reported by row number | Against the row in the user's own file, so it can be fixed in Excel rather than guessed at |
 | Batched, resumable commit | 200 rows a call, idempotent per row — a file that times out resumes instead of duplicating |
 | **Member import suite — 42 tests** | **Including a real .xlsx fixture in Excel's own format** |
+| Expenses | Cost and tax recorded apart, because that is how a supplier's bill reads and the only way input tax credit can be claimed |
+| Default expense categories | Rent, salaries, electricity and the rest, seeded on first use — the first expense does not begin with inventing a chart of accounts |
+| The dashboard's net figure means something | It had shown expenses as zero since Phase 2, because nothing could record one |
+| Payment receipts as PDFs | Half a page: who paid, how much, by what means, towards what, and who took it |
+| **Expenses and receipts suite — 20 tests** | **Including a real rendered receipt** |
+| **Permission registry guard** | **Every permission key the code checks is compared against the seeded registry** |
 
 ### What the isolation suite actually proves
 
@@ -131,8 +137,6 @@ Acting as Gym A, against Gym B's real record ids:
 
 | Item | Note |
 | --- | --- |
-| Receipt PDFs | The invoice PDF is done; a separate payment receipt is not |
-| Expenses screen | Not built, and therefore not linked |
 | Transferring a membership between branches | Works over the API and is tested; no screen offers it yet |
 | Devanagari and other Indic names on the PDF | pdfkit cannot shape complex scripts. `hasUnsupportedScript` detects the case so it can be reported rather than printed as boxes; a gym recording names in Marathi needs a different renderer |
 | Razorpay checkout in the browser | The server half is built and tested; the checkout flow needs real test credentials |
@@ -193,6 +197,7 @@ Recorded because each one says something about where the bugs actually are.
 | Freezing a membership made its row vanish | Phase 2 browser suite | The default filter was "Active", so pausing a membership removed it from the list the receptionist was looking at mid-conversation. "Live" — active plus frozen — is now the default, because that is the question a gym actually asks. |
 | Imported members were created with no branch | Member import suite | A staff member whose read scope is branch-limited sees members by branch, so a member with none is invisible to them — **an import of four hundred members produced an empty members screen**. The import now falls back to the primary branch, exactly as registering by hand does. The worst possible first five minutes with the product. |
 | "Emergency Contact Number" was read as the emergency contact's *name* | Member import suite | The column guesser took the first field whose synonym was a substring, and `emergencyContactName` is declared before `emergencyContactPhone`. A gym's emergency phone number would have been filed as a name — in the one field that exists for an emergency. The longest matching synonym now wins. |
+| The expense service checked permissions that do not exist | Expenses suite | It asked for `finance.expense.create` and `finance.expense.delete`; the registry has `finance.expense.manage`. **A gym owner could not record an expense in their own gym.** Nothing in a typechecker can catch a string that does not match another string, so a test now compares every permission key the code checks against the seeded registry. |
 | The member profile's Edit button went nowhere | Phase 2 browser suite | Same class of problem; the page was built rather than the button removed, since the service behind it was already written and tested. |
 
 ---
@@ -210,6 +215,15 @@ Recorded because each one says something about where the bugs actually are.
 ---
 
 ## Changelog
+
+**18 November 2026 — Expenses and payment receipts**
+What the gym spends, and the slip a member who paid cash walks away with.
+The dashboard's "net" had been revenue wearing a different label since
+Phase 2, because nothing could record an expense. 446 checks passing: 258
+tests, 99 HTTP checks and 89 browser checks. One bug found and fixed — a
+service checking permission keys the registry does not have, which left a
+gym owner unable to record an expense in their own gym — and a test added
+so an invented key cannot pass again.
 
 **18 November 2026 — Bulk member import**
 Upload a CSV or Excel file, see exactly what would happen, then import. The

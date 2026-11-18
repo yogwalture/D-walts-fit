@@ -118,7 +118,17 @@ export default async function PaymentsPage({
               key: 'receipt',
               header: 'Receipt',
               hideOnMobile: true,
-              cell: (row) => <span className="tabular-nums text-ink-muted">{row.receiptCode}</span>,
+              // The slip a member asks for at the desk, or three months later.
+              cell: (row) => (
+                <a
+                  href={`/api/v1/finance/payments/${row.id}/receipt`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="tabular-nums text-accent hover:underline"
+                >
+                  {row.receiptCode}
+                </a>
+              ),
             },
             {
               key: 'method',

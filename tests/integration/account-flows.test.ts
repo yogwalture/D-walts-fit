@@ -697,7 +697,11 @@ describe('the platform console', () => {
     const { rows, total } = await listGyms(adminUserId, { pageSize: 50 });
 
     expect(total).toBeGreaterThanOrEqual(2);
-    const ironTemple = rows.find((row) => row.slug === 'iron-temple');
+    // Searched rather than assumed to be on page one: every HTTP and browser
+    // run leaves gyms behind, and a test that depends on how many exist is a
+    // test that fails for a reason that is not a bug.
+    const { rows: found } = await listGyms(adminUserId, { search: 'Iron Temple' });
+    const ironTemple = found.find((row) => row.slug === 'iron-temple');
     expect(ironTemple?.memberCount).toBe(1);
     expect(JSON.stringify(rows)).not.toContain('Rahul');
   });

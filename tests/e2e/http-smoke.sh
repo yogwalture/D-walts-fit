@@ -151,9 +151,16 @@ check "and the API reports it as absent, not as an error" '{"data":null}' "$body
 # ---------------------------------------------------------- member login ---
 printf '\nmember login\n'
 
+# A number nobody has used before, so running this suite twice in a row does
+# not collide with the per-identifier throttle the first run left behind. The
+# throttle working is the point; tripping over it is not a finding.
+OTP_NUMBER="9${RANDOM}${RANDOM}"
+OTP_NUMBER="9$(printf '%09d' $((RANDOM * RANDOM % 900000000 + 100000000)))"
+OTP_NUMBER="${OTP_NUMBER:0:10}"
+
 body=$(curl -s -X POST "$BASE/api/v1/auth/member" \
   -H 'content-type: application/json' \
-  -d '{"identifier":"9876543210","organizationSlug":"iron-temple"}')
+  -d "{\"identifier\":\"$OTP_NUMBER\",\"organizationSlug\":\"iron-temple\"}")
 has "a code request is acknowledged" "$body" "on its way"
 
 body2=$(curl -s -X POST "$BASE/api/v1/auth/member" \
@@ -163,7 +170,7 @@ check "an unknown member at an unknown gym answers identically" "$body" "$body2"
 
 body=$(curl -s -X PUT "$BASE/api/v1/auth/member" \
   -H 'content-type: application/json' \
-  -d '{"identifier":"9876543210","organizationSlug":"iron-temple","code":"000000"}')
+  -d "{\"identifier\":\"$OTP_NUMBER\",\"organizationSlug\":\"iron-temple\",\"code\":\"000000\"}")
 has "a wrong code is refused" "$body" "INVALID_CREDENTIALS"
 
 # ------------------------------------------------------------ authority ---
@@ -246,7 +253,9 @@ for path in \
   "/api/v1/dashboard/actions" \
   "/api/v1/finance/invoices" \
   "/api/v1/memberships/subscriptions" \
-  "/api/v1/members/import"
+  "/api/v1/members/import" \
+  "/api/v1/finance/expenses" \
+  "/api/v1/finance/expenses/categories"
 do
   code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE$path")
   check "$path is closed to a stranger" "401" "$code"
@@ -362,6 +371,29 @@ has "a file that is not a member list is refused" "$body" "VALIDATION_FAILED"
 
 rm -f /tmp/smoke-import.csv /tmp/smoke-not-a-sheet.png
 
+printf '\nexpenses and receipts\n'
+
+# An expense is money leaving the business, so the gate matters as much as it
+# does on the way in.
+body=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/finance/expenses" \
+  -H 'content-type: application/json' -H 'origin: https://evil.example.com' \
+  -d '{"title":"Hostile","amount":"1000","spentOn":"2026-11-18"}')
+has "a cross-site expense is refused" "$body" "FORBIDDEN"
+
+body=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/finance/expenses" \
+  -H 'content-type: application/json' -H "origin: $BASE" \
+  -d '{"title":"Electricity bill","amount":"8000","taxAmount":"1440","spentOn":"2026-11-18","method":"BANK_TRANSFER"}')
+has "an expense is recorded with its tax kept apart" "$body" '"totalAmount":"9440.00"'
+
+body=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/finance/expenses" \
+  -H 'content-type: application/json' -H "origin: $BASE" \
+  -d '{"title":"Nothing","amount":"0","spentOn":"2026-11-18"}')
+has "a zero expense is refused" "$body" "VALIDATION_FAILED"
+
+body=$(curl -s -b "$JAR2" "$BASE/api/v1/finance/expenses/categories")
+has "a new gym gets usable categories rather than an empty list" "$body" "Electricity"
+
+
 printf '\ninvoice PDFs\n'
 
 # Raise a real invoice rather than hoping one exists: a skipped check reads
@@ -404,6 +436,24 @@ if [ -n "$INV_ID" ]; then
   code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/finance/invoices/$INV_ID/pdf")
   check "a stranger cannot fetch someone's tax invoice" "401" "$code"
   rm -f /tmp/smoke.pdf
+
+  # And the receipt for the payment that settled it — the slip a member who
+  # paid cash actually walks away with.
+  PAY_ID=$(curl -s -b "$JAR2" "$BASE/api/v1/finance/payments" \
+    | python3 -c "import sys,json;d=json.load(sys.stdin).get('data') or [{}];print(d[0].get('id',''))" 2>/dev/null)
+
+  check "the sale recorded a payment to receipt" "true" "$([ -n "$PAY_ID" ] && echo true || echo false)"
+
+  headers=$(curl -s -b "$JAR2" -D- -o /tmp/smoke-receipt.pdf "$BASE/api/v1/finance/payments/$PAY_ID/receipt" | tr 'A-Z' 'a-z')
+  case "$headers" in
+    *application/pdf*) ok "the receipt is served as a PDF";;
+    *) bad "the receipt is served as a PDF" "application/pdf" "see headers";;
+  esac
+  check "its bytes really are a PDF" "%PDF-" "$(head -c 5 /tmp/smoke-receipt.pdf)"
+
+  code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/finance/payments/$PAY_ID/receipt")
+  check "a stranger cannot fetch someone's receipt" "401" "$code"
+  rm -f /tmp/smoke-receipt.pdf
 else
   printf '  - invoice PDF checks skipped (no invoice in this account)\n'
 fi

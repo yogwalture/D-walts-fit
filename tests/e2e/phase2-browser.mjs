@@ -544,6 +544,92 @@ try {
     String(imported.first?.memberCode),
   );
 
+  // --------------------------------------------------------- the receipt ---
+  section('Payment receipts');
+  await page.goto(`${BASE}/finance/payments`, { waitUntil: 'domcontentloaded' });
+
+  const receipt = await page.evaluate(async () => {
+    const list = await (await fetch('/api/v1/finance/payments')).json();
+    const id = list.data?.[0]?.id;
+    if (!id) return { ok: false, reason: 'no payment' };
+
+    const response = await fetch(`/api/v1/finance/payments/${id}/receipt`);
+    const buffer = await response.arrayBuffer();
+    return {
+      ok: response.ok,
+      type: response.headers.get('content-type'),
+      disposition: response.headers.get('content-disposition'),
+      cache: response.headers.get('cache-control'),
+      bytes: buffer.byteLength,
+      head: new TextDecoder('latin1').decode(buffer.slice(0, 5)),
+    };
+  });
+
+  check('the receipt downloads', receipt.ok === true, String(receipt.reason ?? ''));
+  check('it is really a PDF', receipt.head === '%PDF-', String(receipt.head));
+  check('served as application/pdf', receipt.type === 'application/pdf', String(receipt.type));
+  check(
+    'named after the receipt number',
+    /RCP-\d{4}-\d{2}-\d{5}\.pdf/.test(receipt.disposition ?? ''),
+    String(receipt.disposition),
+  );
+  check(
+    'and never held by a shared cache',
+    (receipt.cache ?? '').includes('no-store'),
+    String(receipt.cache),
+  );
+
+  // --------------------------------------------------------- expenses ---
+  section('Expenses');
+  await page.goto(`${BASE}/finance/expenses`, { waitUntil: 'domcontentloaded' });
+  check(
+    'the expenses page renders',
+    (await page.getByRole('heading', { name: 'Expenses' }).count()) > 0,
+  );
+  check(
+    'and says plainly that nothing is recorded yet',
+    (await page.getByText('Nothing recorded yet').count()) > 0,
+  );
+
+  await page.getByRole('button', { name: 'Record an expense' }).click();
+  await page.fill('#exp-title', 'Shop rent — November');
+  await page.fill('#exp-amount', '25000');
+  await page.fill('#exp-tax', '4500');
+  await page.selectOption('#exp-category', { label: 'Rent' });
+  await page.selectOption('#exp-method', 'BANK_TRANSFER');
+  await page.fill('#exp-reference', 'NEFT-99182');
+
+  check(
+    'the button shows the total, cost plus tax',
+    (await page.getByRole('button', { name: /Record ₹29,500\.00/ }).count()) > 0,
+  );
+
+  await page.getByRole('button', { name: /Record ₹29,500\.00/ }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Shop rent'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('the expense is recorded and listed', true);
+  check('with its category', (await page.getByText('Rent').count()) > 0);
+  check(
+    'the tax is kept separate, as input credit needs',
+    (await page.getByText('₹4,500.00').count()) > 0,
+  );
+
+  // The dashboard's net figure now has something to subtract.
+  await page.goto(`${BASE}/dashboard?range=today`, { waitUntil: 'domcontentloaded' });
+  const net = await page.evaluate(async () => {
+    const r = await fetch('/api/v1/dashboard?range=thisMonth');
+    return (await r.json()).data?.money ?? null;
+  });
+  check('the dashboard counts the spend', Number(net?.expensesInRange) === 29500, JSON.stringify(net));
+  check(
+    'and net is collected minus spent, not just collected',
+    Number(net?.netInRange) === Number(net?.collectedInRange) - Number(net?.expensesInRange),
+    JSON.stringify(net),
+  );
+
   // ------------------------------------------------------------- the CSP ---
   section('Security headers');
   const response = await page.goto(`${BASE}/dashboard`, { waitUntil: 'domcontentloaded' });
