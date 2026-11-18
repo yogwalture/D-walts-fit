@@ -89,7 +89,7 @@ const NAVIGATION: NavSection[] = [
         permission: 'finance.expense.read',
         built: true,
       },
-      { href: '/reports', label: 'Reports', permission: 'finance.report.read', built: false },
+      { href: '/reports', label: 'Reports', permission: 'finance.report.read', built: true },
     ],
   },
   {

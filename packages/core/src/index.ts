@@ -36,3 +36,4 @@ export * from './dashboard/service';
 export * from './crm/service';
 export * from './classes/service';
 export * from './inventory/service';
+export * from './reports/service';

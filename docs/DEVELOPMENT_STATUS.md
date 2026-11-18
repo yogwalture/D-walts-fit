@@ -156,6 +156,12 @@ only when real credentials have been used and a real call has succeeded.
 | Nobody approves their own leave | The owner holds every permission in the gym and still cannot sanction their own absence |
 | An invitation prefills the invitee's name | The inviter already typed it; the invitee corrects it rather than typing it again |
 | **Rota and leave suite — 21 tests** | **Including that a person with no branch is still on the rota** |
+| Reports | What a gym hands the accountant, rather than what it watches day to day |
+| GST summary by rate | A return is filed by rate; one figure for tax collected cannot be filed at all. CGST/SGST come from the rate's own components, never from halving |
+| What is owed | Grouped by member and oldest first, because a gym rings a person rather than a document |
+| Membership report | Renewals told apart from first sales, so churn is visible; no expiries means nothing to measure, not perfect retention |
+| CSV export | Built from the same services as the screen, every cell quoted, formula-leading cells defused, and never held by a shared cache |
+| **Reports suite — 19 tests** | **Including that the rates add up to the reported total** |
 
 ### What the isolation suite actually proves
 
@@ -258,6 +264,19 @@ Recorded because each one says something about where the bugs actually are.
 ---
 
 ## Changelog
+
+**18 November 2026 — Reports, and the difference between watching and filing**
+The dashboard answers "how are we doing". Reports answer "what do I give the
+accountant", which has a different tolerance for being approximately right:
+a GST return is filed by rate, so the summary is built from the invoice
+lines by rate, and the CGST/SGST split comes from each rate's own components
+rather than halving the tax — halving is wrong the moment a gym makes an
+inter-state supply. What is owed is grouped by member rather than by
+invoice, because a gym rings a person. Every report downloads as a CSV built
+from the same service as the screen, so the file and the page cannot
+disagree; every cell is quoted, and a cell starting with `=` is defused,
+because a formula in an exported name is an attack on whoever opens the
+file. 709 checks passing: 393 tests, 156 HTTP checks and 162 browser checks.
 
 **18 November 2026 — The rota, and a trainer who was invisible**
 Staff attendance, shifts and leave are one thing rather than three: approving

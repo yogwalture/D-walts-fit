@@ -1243,6 +1243,65 @@ try {
     String(afterCount?.quantityOnHand),
   );
 
+  // ------------------------------------------------------------- reports ---
+  // What a gym hands the accountant. The GST summary is by rate, because a
+  // return is filed by rate and one figure for tax cannot be filed at all.
+  section('Reports');
+  await page.goto(`${BASE}/reports`, { waitUntil: 'domcontentloaded' });
+  check('the reports page renders', (await page.getByRole('heading', { name: 'Reports' }).count()) > 0);
+
+  const reportText = await page.evaluate(() => document.body.innerText);
+  check('it shows a GST summary by rate', /GST summary/i.test(reportText));
+  check('and a CGST and SGST split', /CGST/.test(reportText) && /SGST/.test(reportText));
+  check('and what is owed', /What is owed/i.test(reportText));
+
+  const figures = await page.evaluate(async () => {
+    const tax = await (await fetch('/api/v1/reports?kind=tax&from=2020-01-01&to=2030-01-01')).json();
+    const dues = await (await fetch('/api/v1/reports?kind=dues')).json();
+    return { tax: tax.data, dues: dues.data };
+  });
+  check(
+    'the rates add up to the reported total',
+    Math.abs(
+      figures.tax.byRate.reduce((sum, r) => sum + Number(r.total), 0) - Number(figures.tax.total),
+    ) < 0.02,
+    JSON.stringify({ total: figures.tax.total, rates: figures.tax.byRate.length }),
+  );
+  check(
+    'the shop and memberships are reported apart',
+    figures.tax.byItemType.some((r) => r.itemType === 'PRODUCT') &&
+      figures.tax.byItemType.some((r) => r.itemType === 'MEMBERSHIP'),
+    JSON.stringify(figures.tax.byItemType.map((r) => r.itemType)),
+  );
+
+  // The download has to be the same numbers, not a second implementation.
+  const csv = await page.evaluate(async () => {
+    const response = await fetch('/api/v1/reports/export?kind=tax&from=2020-01-01&to=2030-01-01');
+    return {
+      type: response.headers.get('content-type'),
+      disposition: response.headers.get('content-disposition'),
+      cache: response.headers.get('cache-control'),
+      body: await response.text(),
+    };
+  });
+  check('the export is served as a CSV file', /text\/csv/.test(csv.type ?? ''), String(csv.type));
+  check(
+    'with a filename a person can find again',
+    /attachment; filename="gst-/.test(csv.disposition ?? ''),
+    String(csv.disposition),
+  );
+  check(
+    'and is never held by a shared cache',
+    /no-store/.test(csv.cache ?? ''),
+    String(csv.cache),
+  );
+  check('every cell is quoted', csv.body.startsWith('"rate_percent"'), csv.body.slice(0, 60));
+  check(
+    'and the file agrees with the screen',
+    csv.body.includes(figures.tax.byRate[0].taxable),
+    csv.body.split('\r\n')[1] ?? '',
+  );
+
   // --------------------------------------------------------- the plan wall ---
   // A second gym, on Starter, which does not include the CRM. What it meets
   // there decides whether a plan boundary reads as a sale or as a bug: the

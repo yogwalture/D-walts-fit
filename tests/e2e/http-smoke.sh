@@ -616,6 +616,49 @@ if [ -n "$TYPE_ID" ]; then
   check "one entry per member, booked and waiting alike" "3" "$told"
 fi
 
+# ------------------------------------------------------------- reports ---
+printf '\nreports\n'
+
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/reports?kind=tax")
+check "reports are closed to strangers" "401" "$code"
+
+body=$(curl -s -b "$JAR2" "$BASE/api/v1/reports?kind=tax&from=2020-01-01&to=2030-01-01")
+has "the GST summary is by rate" "$body" '"byRate"'
+has "with the CGST and SGST split" "$body" '"cgst"'
+
+# Somebody who has not paid in full, so there is a debt to report. Every
+# other sale in this run settles at the counter.
+DEBTOR=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/members" \
+  -H 'content-type: application/json' -H "origin: $BASE" \
+  -d "{\"firstName\":\"Owing\",\"lastName\":\"Smoke\",\"phone\":\"9${STAMP: -6}777\"}" \
+  | json_field id)
+curl -s -o /dev/null -b "$JAR2" -X POST "$BASE/api/v1/memberships/sell" \
+  -H 'content-type: application/json' -H "origin: $BASE" \
+  -d "{\"memberId\":\"$DEBTOR\",\"planId\":\"$PLAN_ID\"}"
+
+body=$(curl -s -b "$JAR2" "$BASE/api/v1/reports?kind=dues")
+has "what is owed is grouped by member" "$body" '"daysOverdue"'
+has "and names who to ring" "$body" "Owing Smoke"
+
+headers=$(curl -s -b "$JAR2" -D- -o /tmp/report.csv \
+  "$BASE/api/v1/reports/export?kind=dues" | tr 'A-Z' 'a-z')
+case "$headers" in
+  *text/csv*) ok "the export is served as a CSV";;
+  *) bad "the export is served as a CSV" "text/csv" "see headers";;
+esac
+case "$headers" in
+  *no-store*) ok "and is never held by a shared cache";;
+  *) bad "and is never held by a shared cache" "no-store" "see headers";;
+esac
+
+head -c 13 /tmp/report.csv | grep -q '"member_code"' \
+  && ok "with a quoted header row" \
+  || bad "with a quoted header row" '"member_code"' "$(head -c 40 /tmp/report.csv)"
+rm -f /tmp/report.csv
+
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/reports/export?kind=dues")
+check "a stranger cannot download a gym's figures" "401" "$code"
+
 # ---------------------------------------------------------------- rota ---
 printf '\nrota and leave\n'
 
@@ -745,6 +788,10 @@ check "the page itself answers 200 so it can explain the plan" "200" "$code"
 
 body=$(curl -s -b "$JAR3" "$BASE/crm/leads")
 has "the page names the plan that includes it" "$body" "Growth"
+
+# Reports are not plan-gated: every gym can see its own position.
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR3" "$BASE/api/v1/reports?kind=dues")
+check "but a Starter gym still gets its own figures" "200" "$code"
 
 # Members are in every plan: the lock must be the feature, not the gym.
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR3" "$BASE/api/v1/members")
