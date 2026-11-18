@@ -541,6 +541,81 @@ if [ -n "$LEAD_ID" ]; then
   has "and the enquiry records where the member came from" "$body" '"CONVERTED"'
 fi
 
+# --------------------------------------------------------------- classes ---
+printf '\nclasses\n'
+
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/classes")
+check "the timetable is closed to strangers" "401" "$code"
+
+TYPE_ID=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/classes/types" \
+  -H 'content-type: application/json' -H "origin: $BASE" \
+  -d '{"name":"Smoke Spin","defaultCapacity":1,"defaultDurationMinutes":45}' | json_field id)
+
+check "a kind of class is created" "true" "$([ -n "$TYPE_ID" ] && echo true || echo false)"
+
+if [ -n "$TYPE_ID" ]; then
+  STARTS="$(date -u -d '+2 days 10:00' +%Y-%m-%dT%H:00:00Z 2>/dev/null || date -u +%Y-%m-%dT10:00:00Z)"
+
+  body=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/classes/schedule" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d "{\"classTypeId\":\"$TYPE_ID\",\"startsAt\":\"$STARTS\",\"room\":\"Smoke Studio\"}")
+  has "a class is put on the timetable" "$body" '"ids"'
+
+  CLASS_ID=$(printf '%s' "$body" | python3 -c \
+    "import sys,json;print(json.load(sys.stdin)['data']['ids'][0])" 2>/dev/null)
+
+  # Three members paid up, so the only thing deciding the outcome is capacity.
+  BOOKERS=""
+  for n in 1 2 3; do
+    MID=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/members" \
+      -H 'content-type: application/json' -H "origin: $BASE" \
+      -d "{\"firstName\":\"Racer$n\",\"lastName\":\"Smoke\",\"phone\":\"9${STAMP: -6}00$n\"}" \
+      | json_field id)
+    [ -n "$MID" ] || bad "a member for the race is created" "an id" "none"
+    curl -s -o /dev/null -b "$JAR2" -X POST "$BASE/api/v1/memberships/sell" \
+      -H 'content-type: application/json' -H "origin: $BASE" \
+      -d "{\"memberId\":\"$MID\",\"planId\":\"$PLAN_ID\",\"payment\":{\"amount\":\"1500.00\",\"method\":\"CASH\"}}"
+    BOOKERS="$BOOKERS $MID"
+  done
+
+  # The test that matters: three requests in flight for one place. Reading
+  # the booked count and writing it back would let all three in, and the
+  # class would run with two people too many.
+  for MID in $BOOKERS; do
+    curl -s -o "/tmp/book-$MID.json" -b "$JAR2" -X POST "$BASE/api/v1/classes/bookings" \
+      -H 'content-type: application/json' -H "origin: $BASE" \
+      -d "{\"classId\":\"$CLASS_ID\",\"memberId\":\"$MID\"}" &
+  done
+  wait
+
+  # grep -o, not grep -c: the responses carry no trailing newline, so cat
+  # runs them together and a line count would report one of each.
+  BOOKED=$(cat /tmp/book-*.json | grep -o '"status":"BOOKED"' | wc -l | tr -d ' ')
+  WAITING=$(cat /tmp/book-*.json | grep -o '"status":"WAITLISTED"' | wc -l | tr -d ' ')
+  rm -f /tmp/book-*.json
+
+  check "exactly one of three simultaneous requests gets the place" "1" "$BOOKED"
+  check "and the other two are waitlisted" "2" "$WAITING"
+
+  body=$(curl -s -b "$JAR2" "$BASE/api/v1/classes/$CLASS_ID")
+  seats=$(printf '%s' "$body" | python3 -c \
+    "import sys,json;d=json.load(sys.stdin)['data'];print(d['bookedCount']<=d['capacity'])" 2>/dev/null)
+  check "the class is never oversold" "True" "$seats"
+
+  code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR2" -X POST "$BASE/api/v1/classes/cancel" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d "{\"classId\":\"$CLASS_ID\"}")
+  check "cancelling a class without a reason is refused" "422" "$code"
+
+  body=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/classes/cancel" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d "{\"classId\":\"$CLASS_ID\",\"reason\":\"Trainer unwell\"}")
+  has "cancelling returns who has to be told" "$body" '"toInform"'
+  told=$(printf '%s' "$body" | python3 -c \
+    "import sys,json;print(len(json.load(sys.stdin)['data']['toInform']))" 2>/dev/null)
+  check "one entry per member, booked and waiting alike" "3" "$told"
+fi
+
 # ------------------------------------------------------------ plan limits ---
 # A gym on Starter is told what its plan does not include, in a form the
 # mobile app can branch on. Silence or a 500 here would read as a bug in the

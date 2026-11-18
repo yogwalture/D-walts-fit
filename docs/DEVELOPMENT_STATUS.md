@@ -133,6 +133,14 @@ only when real credentials have been used and a real call has succeeded.
 | Plan boundaries are a sale, not an error | A gym whose plan excludes a feature meets a page naming the plan that includes it and its price — not a 500 |
 | Plan chosen at registration | The signup form reads the live plan table, so a pricing change is a data change |
 | **Plan-lock tests — 4 tests** | **Including that a role denial and a plan lock are never confused for each other** |
+| Classes and the timetable | A day at a time, led by the places left — the question asked at the desk, not a month grid |
+| Capacity that holds under load | The class row is locked for the duration of a booking, so two people pressing Book on the last place cannot both get it |
+| A waitlist that moves | Cancelling promotes the first person waiting in the same transaction, and says who, because somebody has to tell them |
+| Weekly classes | Generated as real rows up to twelve weeks ahead; a week the trainer is busy is skipped with a reason rather than failing the series |
+| No trainer in two rooms at once | Overlap refused against live sessions; a cancelled class frees its slot |
+| The class register | Marking a member present also records their gym visit, so a member who only comes to the 7am class is not counted as never attending |
+| Cancelling a class | Cancels its bookings and hands back the list of members to ring — one entry per person, however many sessions they had booked |
+| **Classes suite — 30 tests** | **Including three genuinely concurrent bookings for one place** |
 
 ### What the isolation suite actually proves
 
@@ -157,7 +165,6 @@ Acting as Gym A, against Gym B's real record ids:
 | Item | Note |
 | --- | --- |
 | Transferring a membership between branches | Works over the API and is tested; no screen offers it yet |
-| Classes and scheduling | Models exist; no service or screen yet |
 | Inventory and point of sale | Models exist; no service or screen yet |
 | Staff attendance, shifts and leave | Models and permissions exist; no service or screen yet |
 | Devanagari and other Indic names on the PDF | pdfkit cannot shape complex scripts. `hasUnsupportedScript` detects the case so it can be reported rather than printed as boxes; a gym recording names in Marathi needs a different renderer |
@@ -238,6 +245,27 @@ Recorded because each one says something about where the bugs actually are.
 ---
 
 ## Changelog
+
+**18 November 2026 — Classes, capacity and a waitlist that moves**
+Two things decide whether a gym timetable works, and the calendar is
+neither. Capacity, because two members press Book on the last place within
+the same second — so a booking locks the class row and decides from the
+locked figure. The test fires three concurrent requests at a class with one
+place; with the lock removed, all three get in, which is exactly the bug
+this prevents. And the waitlist, because one that does not move when
+somebody cancels is decoration: cancelling now promotes the first person
+waiting in the same transaction and says who, since somebody has to tell
+them. Repeating classes are materialised as real rows up to twelve weeks
+out, because the deploy target has no worker to extend them — and a week
+the trainer is already busy is skipped with a reason instead of failing the
+whole term.
+
+Writing the browser test found a live bug nothing else had: the phone
+normaliser stripped a leading `91` unconditionally, so **a member whose real
+ten-digit number starts 91 — 9112…, 9145…, live Indian series — could not be
+registered, found, or signed in at all.** The country code is now removed
+only when ten digits remain. 592 checks passing: 333 tests, 130 HTTP checks
+and 129 browser checks.
 
 **18 November 2026 — Enquiries, and the difference between a locked door and a dead end**
 A gym's growth is almost entirely one thing: someone walks in, asks the

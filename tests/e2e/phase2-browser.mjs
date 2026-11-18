@@ -802,6 +802,223 @@ try {
     String(converted?.status),
   );
 
+  // ------------------------------------------------------------- classes ---
+  // Capacity and the waitlist, through the interface a gym actually uses.
+  section('Classes');
+
+  // Two members with live memberships to book. Ravi's was frozen earlier in
+  // this run, and a frozen membership is deliberately refused a class, so
+  // the booking flow needs people who are actually paid up.
+  const classMembers = await page.evaluate(async () => {
+    const plans = await (await fetch('/api/v1/memberships/plans')).json();
+    const planId = plans.data?.[0]?.id;
+    const made = [];
+    for (const [first, phone] of [
+      ['Sunita', '9811122001'],
+      ['Mahesh', '9811122002'],
+    ]) {
+      const member = await (
+        await fetch('/api/v1/members', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ firstName: first, lastName: 'Classgoer', phone }),
+        })
+      ).json();
+      await fetch('/api/v1/memberships/sell', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          memberId: member.data.id,
+          planId,
+          payment: { amount: '1500.00', method: 'CASH' },
+        }),
+      });
+      made.push({ name: first, id: member.data.id });
+    }
+    return made;
+  });
+  check('two paid-up members exist to book in', classMembers.length === 2);
+
+  await page.goto(`${BASE}/classes/schedule`, { waitUntil: 'domcontentloaded' });
+  check(
+    'the timetable renders',
+    (await page.getByRole('heading', { name: 'Classes' }).count()) > 0,
+  );
+
+  // A gym with no class types is told what to do first, not shown an empty grid.
+  check(
+    'an empty gym is told to add a kind of class first',
+    (await page.getByText(/Nothing to schedule yet/i).count()) > 0,
+  );
+
+  await page.getByRole('button', { name: 'Add a kind of class' }).click();
+  await page.fill('#name', 'Reformer');
+  await page.fill('#defaultCapacity', '1');
+  await page.getByRole('button', { name: 'Add class' }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Put a class on the timetable'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('a kind of class can be added', true);
+
+  // Tomorrow at 10am: in the future, so it can be booked, and squarely
+  // inside the gym's own business day rather than straddling it.
+  const tomorrowLocal = (() => {
+    const d = new Date(Date.now() + 86_400_000);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  })();
+
+  await page.getByRole('button', { name: 'Put a class on the timetable' }).click();
+  await page.fill('#date', tomorrowLocal);
+  await page.fill('#time', '10:00');
+  await page.fill('#room', 'Studio A');
+  await page.getByRole('button', { name: 'Schedule' }).click();
+
+  // The panel closes only once the class has actually been created, so this
+  // is the signal that the write landed — not the URL, which never changed.
+  await page
+    .getByRole('button', { name: 'Put a class on the timetable' })
+    .waitFor({ timeout: 20_000 });
+
+  await page.goto(`${BASE}/classes/schedule?day=${tomorrowLocal}`, {
+    waitUntil: 'domcontentloaded',
+  });
+
+  const timetableText = await page.evaluate(() => document.body.innerText);
+  check('a class appears on the timetable', /Studio A/.test(timetableText));
+  check(
+    'and leads with the places left',
+    /1 place left/i.test(timetableText),
+    timetableText.split('\n').filter((l) => /place|Full|of /i.test(l)).join(' | '),
+  );
+
+  // Into the class itself, where the register lives.
+  await page.getByText('Studio A').first().click();
+  await page.waitForURL(/\/classes\/[0-9a-f-]{36}/, { timeout: 20_000 });
+  const classUrl = page.url();
+  check('the class opens', (await page.getByText('The register').count()) > 0);
+
+  await page.getByRole('button', { name: 'Book a member in' }).click();
+  await page.fill('input[aria-label="Find a member"]', 'Sunita');
+  await page.getByRole('button', { name: 'Book', exact: true }).first().click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('is booked in'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('a member is booked in', true);
+  check(
+    'and the message says how many places are left',
+    /0 places left/i.test(await page.evaluate(() => document.body.innerText)),
+  );
+
+  // The single place is taken, so the next member must be waitlisted rather
+  // than squeezed in — the bit that breaks in most gym software.
+  await page.fill('input[aria-label="Find a member"]', 'Mahesh');
+  const waitlistButton = page.getByRole('button', { name: 'Waitlist' }).first();
+  await waitlistButton.waitFor({ timeout: 15_000 });
+  check('a full class offers the waitlist, not a booking', true);
+  await waitlistButton.click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('on the waitlist at position 1'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('the next member is waitlisted at position 1', true);
+
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  const classCounts = await page.evaluate(async (url) => {
+    const id = url.split('/').pop();
+    const r = await fetch(`/api/v1/classes/${id}`);
+    return (await r.json()).data ?? null;
+  }, classUrl);
+  check(
+    'the class holds one booking and one on the waitlist',
+    classCounts?.bookedCount === 1 && classCounts?.waitlistCount === 1,
+    JSON.stringify({
+      booked: classCounts?.bookedCount,
+      waiting: classCounts?.waitlistCount,
+    }),
+  );
+  check(
+    'and never more bookings than places',
+    classCounts !== null && classCounts.bookedCount <= classCounts.capacity,
+  );
+
+  // Cancelling the booked member must move the waitlisted one in, and say so.
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: 'Cancel', exact: true }).first().click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('moved off the waitlist'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('cancelling promotes the first person waiting, and says who', true);
+
+  const afterPromotion = await page.evaluate(async (url) => {
+    const id = url.split('/').pop();
+    const r = await fetch(`/api/v1/classes/${id}`);
+    return (await r.json()).data ?? null;
+  }, classUrl);
+  check(
+    'the promoted member holds the place, and the waitlist is empty',
+    afterPromotion?.bookedCount === 1 && afterPromotion?.waitlistCount === 0,
+    JSON.stringify({
+      booked: afterPromotion?.bookedCount,
+      waiting: afterPromotion?.waitlistCount,
+    }),
+  );
+
+  // Marking the register, which must also count as a gym visit.
+  await page.goto(classUrl, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: 'Present' }).first().click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Turned up'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  const presentState = await page.evaluate(async (url) => {
+    const id = url.split('/').pop();
+    const detail = await (await fetch(`/api/v1/classes/${id}`)).json();
+    return detail.data?.roster?.map((r) => r.status) ?? [];
+  }, classUrl);
+  check(
+    'a member can be marked present',
+    presentState.includes('ATTENDED'),
+    JSON.stringify(presentState),
+  );
+
+  // Someone booked but not yet marked present, so the cancellation has a
+  // person to hand back.
+  await page.goto(classUrl, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: 'Add to the waitlist' }).click();
+  await page.fill('input[aria-label="Find a member"]', 'Sunita');
+  await page.getByRole('button', { name: 'Waitlist' }).first().click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('waitlist at position 1'),
+    undefined,
+    { timeout: 20_000 },
+  );
+
+  // Cancelling the class itself must hand over the list of people to ring.
+  await page.goto(classUrl, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: 'Cancel this class' }).click();
+  await page.fill('#reason', 'The trainer is unwell');
+  await page.getByRole('button', { name: 'Cancel the class' }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('These members were booked in'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('cancelling a class hands over who has to be told', true);
+  check(
+    'with a number that can be dialled',
+    (await page.locator('a[href^="tel:"]').count()) > 0,
+  );
+
   // --------------------------------------------------------- the plan wall ---
   // A second gym, on Starter, which does not include the CRM. What it meets
   // there decides whether a plan boundary reads as a sale or as a bug: the

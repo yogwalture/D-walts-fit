@@ -33,3 +33,4 @@ export * from './billing/invoices';
 export * from './billing/expenses';
 export * from './dashboard/service';
 export * from './crm/service';
+export * from './classes/service';

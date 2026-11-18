@@ -114,7 +114,12 @@ const NAVIGATION: NavSection[] = [
         permission: 'fitness.workout.read',
         built: false,
       },
-      { href: '/classes/schedule', label: 'Classes', permission: 'classes.class.read', built: false },
+      {
+        href: '/classes/schedule',
+        label: 'Classes',
+        permission: 'classes.class.read',
+        built: true,
+      },
       {
         href: '/inventory/products',
         label: 'Inventory',

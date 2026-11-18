@@ -134,6 +134,20 @@ describe('input coercion', () => {
     }
   });
 
+  it('keeps a real number that happens to start with 91', () => {
+    // 9112…, 9145… and the rest are live Indian mobile series. Stripping a
+    // leading 91 unconditionally left eight digits and rejected the member
+    // outright — they could not be registered, found or signed in.
+    for (const real of ['9112907620', '9145678901', '9198765432']) {
+      expect(phone.parse(real), `${real} should survive`).toBe(real);
+    }
+
+    // The country code is still removed when it is actually a country code.
+    expect(phone.parse('919876543210')).toBe('9876543210');
+    expect(phone.parse('+91 91129 07620')).toBe('9112907620');
+    expect(phone.parse('09112907620')).toBe('9112907620');
+  });
+
   it('accepts money as a string or a number and stores two decimals', () => {
     expect(money.parse('1500')).toBe('1500');
     expect(money.parse(1500)).toBe('1500.00');

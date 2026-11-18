@@ -10,10 +10,23 @@ import { z } from 'zod';
 export const uuid = z.string().uuid();
 
 /** Indian mobile number, stored as 10 digits without the country code. */
+/**
+ * An Indian mobile number, normalised to its ten digits.
+ *
+ * The country code is stripped only when ten digits remain afterwards. An
+ * unconditional strip of a leading `91` is a live bug rather than a nicety:
+ * 91 is also the start of real ten-digit numbers (9112…, 9145…), and those
+ * members could not be registered, found or signed in at all.
+ */
 export const phone = z
   .string()
   .trim()
-  .transform((v) => v.replace(/[\s-]/g, '').replace(/^(\+91|91|0)/, ''))
+  .transform((v) =>
+    v
+      .replace(/[\s-]/g, '')
+      .replace(/^\+91(?=\d{10}$)/, '')
+      .replace(/^(?:0+|91)(?=\d{10}$)/, ''),
+  )
   .pipe(z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit mobile number'));
 
 export const email = z.string().trim().toLowerCase().email();
