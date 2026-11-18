@@ -255,7 +255,9 @@ for path in \
   "/api/v1/memberships/subscriptions" \
   "/api/v1/members/import" \
   "/api/v1/finance/expenses" \
-  "/api/v1/finance/expenses/categories"
+  "/api/v1/finance/expenses/categories" \
+  "/api/v1/staff/trainers" \
+  "/api/v1/org/invitations"
 do
   code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE$path")
   check "$path is closed to a stranger" "401" "$code"
@@ -370,6 +372,37 @@ body=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/members/import" \
 has "a file that is not a member list is refused" "$body" "VALIDATION_FAILED"
 
 rm -f /tmp/smoke-import.csv /tmp/smoke-not-a-sheet.png
+
+printf '\nteam and trainers\n'
+
+# An invited person has no account until they accept, so without this the
+# team page showed nothing and the sender could not tell it had gone out.
+ROLE_ID=$(curl -s -b "$JAR2" "$BASE/api/v1/org/roles" \
+  | python3 -c "import sys,json;rs=json.load(sys.stdin).get('data') or [];print(next((r['id'] for r in rs if r.get('key')=='TRAINER'),''))" 2>/dev/null)
+
+if [ -n "$ROLE_ID" ]; then
+  INVITE_EMAIL="smoke.trainer.$STAMP@example.com"
+  code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR2" -X POST "$BASE/api/v1/org/staff" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d "{\"email\":\"$INVITE_EMAIL\",\"fullName\":\"Smoke Trainer\",\"roleId\":\"$ROLE_ID\",\"branchIds\":[]}")
+  check "a trainer can be invited" "201" "$code"
+
+  body=$(curl -s -b "$JAR2" "$BASE/api/v1/org/invitations")
+  has "the pending invitation is visible" "$body" "Smoke Trainer"
+  has "with the address it went to" "$body" "$INVITE_EMAIL"
+
+  INVITE_ID=$(printf '%s' "$body" | python3 -c "import sys,json;d=json.load(sys.stdin).get('data') or [];print(d[0].get('id','') if d else '')" 2>/dev/null)
+
+  code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR2" -X DELETE \
+    -H "origin: $BASE" "$BASE/api/v1/org/invitations/$INVITE_ID")
+  check "and can be taken back" "200" "$code"
+
+  body=$(curl -s -b "$JAR2" "$BASE/api/v1/org/invitations")
+  case "$body" in
+    *"$INVITE_EMAIL"*) bad "a revoked invitation is gone" "not listed" "still listed";;
+    *) ok "a revoked invitation is gone";;
+  esac
+fi
 
 printf '\nexpenses and receipts\n'
 

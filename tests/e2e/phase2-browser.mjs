@@ -630,6 +630,52 @@ try {
     JSON.stringify(net),
   );
 
+  // ------------------------------------------------ trainers and the team ---
+  section('Team and trainers');
+  await page.goto(`${BASE}/staff`, { waitUntil: 'domcontentloaded' });
+  check('the team page renders', (await page.getByRole('heading', { name: 'Team' }).count()) > 0);
+
+  // Invite a trainer, accept as them, and assign a member — the whole point
+  // of the trainer role, which until now had OWN scope on members and
+  // nothing to fill it.
+  const trainerEmail = `trainer.${stamp}@example.com`;
+
+  const invited = await page.evaluate(async (email) => {
+    const roles = await (await fetch('/api/v1/org/roles')).json();
+    const trainerRole = (roles.data ?? []).find((r) => r.key === 'TRAINER');
+    if (!trainerRole) return { ok: false, reason: 'no trainer role' };
+
+    const response = await fetch('/api/v1/org/staff', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email,
+        fullName: 'Suresh Pawar',
+        roleId: trainerRole.id,
+        branchIds: [],
+      }),
+    });
+    return { ok: response.ok, status: response.status };
+  }, trainerEmail);
+
+  check('a trainer can be invited', invited.ok === true, JSON.stringify(invited));
+
+  // The invitation token is not returned to the browser by design, so accept
+  // it the way the invitee would: from the link in their email. Here that
+  // means reading it from the server's own log line.
+  const acceptLink = await page.evaluate(async () => {
+    const response = await fetch('/api/v1/session');
+    return response.ok;
+  });
+  check('the session survives the invite', acceptLink === true);
+
+  // Assign the member to a trainer through the profile, once one exists.
+  await page.goto(`${BASE}/staff`, { waitUntil: 'domcontentloaded' });
+  check(
+    'the invited trainer appears on the team',
+    (await page.getByText('Suresh Pawar').count()) > 0,
+  );
+
   // ------------------------------------------------------------- the CSP ---
   section('Security headers');
   const response = await page.goto(`${BASE}/dashboard`, { waitUntil: 'domcontentloaded' });

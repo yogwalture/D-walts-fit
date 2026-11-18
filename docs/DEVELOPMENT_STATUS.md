@@ -1,7 +1,7 @@
 # Development status
 
 Updated: 18 November 2026
-Phase: **2 — Core Gym Management**
+Phase: **3 — Gym Operations**
 
 This file is the single honest record of what works, what does not, and what
 is waiting on someone. A feature is listed as complete only when its critical
@@ -114,6 +114,15 @@ only when real credentials have been used and a real call has succeeded.
 | Payment receipts as PDFs | Half a page: who paid, how much, by what means, towards what, and who took it |
 | **Expenses and receipts suite — 20 tests** | **Including a real rendered receipt** |
 | **Permission registry guard** | **Every permission key the code checks is compared against the seeded registry** |
+| **— Phase 3 —** | |
+| The team directory | Who is on the team, what they specialise in, how many members each trainer carries |
+| Staff profiles | Designation, department, specialisations, certifications, joining date |
+| Salary and bank details | Behind `staff.salary.read` — not fetched at all without it, and the figure is kept out of the audit log |
+| Trainer assignment | From the member profile, with the assignment history kept and the member's timeline updated |
+| A trainer's own members | The trainer role has carried OWN scope since Phase 1; something finally fills it |
+| Branch-aware assignment | A trainer limited to certain branches cannot be handed a member from another |
+| Pending invitations | Visible with who sent them and when they expire, and revocable — an invited person has no account until they accept |
+| **Staff and trainer suite — 20 tests** | **Including that a manager can edit a profile but not set a wage** |
 
 ### What the isolation suite actually proves
 
@@ -138,6 +147,10 @@ Acting as Gym A, against Gym B's real record ids:
 | Item | Note |
 | --- | --- |
 | Transferring a membership between branches | Works over the API and is tested; no screen offers it yet |
+| Classes and scheduling | Models exist; no service or screen yet |
+| Inventory and point of sale | Models exist; no service or screen yet |
+| Leads and CRM | Models exist; no service or screen yet |
+| Staff attendance, shifts and leave | Models and permissions exist; no service or screen yet |
 | Devanagari and other Indic names on the PDF | pdfkit cannot shape complex scripts. `hasUnsupportedScript` detects the case so it can be reported rather than printed as boxes; a gym recording names in Marathi needs a different renderer |
 | Razorpay checkout in the browser | The server half is built and tested; the checkout flow needs real test credentials |
 | First deployment to Hostinger over HTTPS | Blocked: needs a database connection string and a GitHub repository |
@@ -198,6 +211,7 @@ Recorded because each one says something about where the bugs actually are.
 | Imported members were created with no branch | Member import suite | A staff member whose read scope is branch-limited sees members by branch, so a member with none is invisible to them — **an import of four hundred members produced an empty members screen**. The import now falls back to the primary branch, exactly as registering by hand does. The worst possible first five minutes with the product. |
 | "Emergency Contact Number" was read as the emergency contact's *name* | Member import suite | The column guesser took the first field whose synonym was a substring, and `emergencyContactName` is declared before `emergencyContactPhone`. A gym's emergency phone number would have been filed as a name — in the one field that exists for an emergency. The longest matching synonym now wins. |
 | The expense service checked permissions that do not exist | Expenses suite | It asked for `finance.expense.create` and `finance.expense.delete`; the registry has `finance.expense.manage`. **A gym owner could not record an expense in their own gym.** Nothing in a typechecker can catch a string that does not match another string, so a test now compares every permission key the code checks against the seeded registry. |
+| Inviting someone left no trace anywhere | Phase 3 browser suite | An invited person has no account until they accept, so the team page showed nothing: **the person who sent an invitation could not tell whether it had gone out, when it expired, or how to take it back.** Pending invitations are now listed with the sender and the expiry, and can be revoked. The invited person's name is stored so the list shows a person rather than a bare email address. |
 | The member profile's Edit button went nowhere | Phase 2 browser suite | Same class of problem; the page was built rather than the button removed, since the service behind it was already written and tested. |
 
 ---
@@ -215,6 +229,15 @@ Recorded because each one says something about where the bugs actually are.
 ---
 
 ## Changelog
+
+**18 November 2026 — Phase 3 begins: the team, and trainers who have members**
+The trainer role has carried OWN scope on members since Phase 1 and nothing
+ever filled it, so a trainer signed in to an empty list; the member profile
+said "Trainer: Not assigned" with no way to assign one. Both are now real.
+Salary and bank details sit behind their own permission, are not fetched at
+all without it, and the figure is kept out of the audit log — anyone who can
+read the log would otherwise be able to read every wage in the gym. 477
+checks passing: 278 tests, 106 HTTP checks and 93 browser checks.
 
 **18 November 2026 — Expenses and payment receipts**
 What the gym spends, and the slip a member who paid cash walks away with.

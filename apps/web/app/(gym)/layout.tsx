@@ -107,7 +107,7 @@ const NAVIGATION: NavSection[] = [
   {
     heading: 'Operations',
     items: [
-      { href: '/staff', label: 'Staff', permission: 'staff.profile.read', built: false },
+      { href: '/staff', label: 'Team', permission: 'staff.profile.read', built: true },
       {
         href: '/fitness/workout-plans',
         label: 'Workouts',
@@ -126,7 +126,7 @@ const NAVIGATION: NavSection[] = [
   {
     heading: 'Settings',
     items: [
-      { href: '/settings/users', label: 'Team', permission: 'org.user.read', built: true },
+      { href: '/settings/users', label: 'Access', permission: 'org.user.read', built: true },
       { href: '/settings/security', label: 'Security', built: true },
     ],
   },

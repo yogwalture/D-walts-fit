@@ -39,6 +39,8 @@ export interface IssueTokenInput {
   /** A short numeric code instead of a 32-byte token, for member OTP. */
   code?: string;
   maxAttempts?: number;
+  /** For an invitation: the name the inviter typed, so it can be shown back to them. */
+  invitedName?: string;
 }
 
 export interface IssuedToken {
@@ -72,6 +74,7 @@ export async function issueToken(
       organizationId: input.organizationId ?? null,
       memberId: input.memberId ?? null,
       roleId: input.roleId ?? null,
+      invitedName: input.invitedName ?? null,
       branchIds: input.branchIds ?? [],
       maxAttempts: input.maxAttempts ?? (input.code ? 5 : 10),
       expiresAt,

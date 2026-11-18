@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { withTenant } from '@gym/db';
-import { getMember } from '@gym/core';
+import { getMember, listTrainers } from '@gym/core';
 import { requireActor, holds } from '@/lib/current-session';
 import {
   Badge,
@@ -16,6 +16,7 @@ import {
   timeOfDay,
 } from '@/components/ui';
 import { SellMembershipPanel } from './sell-panel';
+import { TrainerPicker } from './trainer-picker';
 import { TakePaymentPanel } from './payment-panel';
 
 export const metadata: Metadata = { title: 'Member' };
@@ -42,7 +43,7 @@ export default async function MemberPage({
 
   const member = await getMember(ctx, actor.permissions, id);
 
-  const [plans, attendance, payments] = await Promise.all([
+  const [plans, attendance, payments, trainers] = await Promise.all([
     holds(session, 'memberships.subscription.create')
       ? withTenant(ctx, (tx) =>
           tx.membershipPlan.findMany({
@@ -76,6 +77,9 @@ export default async function MemberPage({
             },
           }),
         )
+      : Promise.resolve([]),
+    holds(session, 'members.member.update') && holds(session, 'staff.profile.read')
+      ? listTrainers(ctx, actor.permissions)
       : Promise.resolve([]),
   ]);
 
@@ -316,10 +320,32 @@ export default async function MemberPage({
                 : '—'
             }
           />
-          <Detail
-            label="Trainer"
-            value={member.assignedTrainer?.user.fullName ?? 'Not assigned'}
-          />
+          <div>
+            <dt className="text-sm font-medium text-ink-muted">Trainer</dt>
+            <dd className="mt-0.5 text-base text-ink">
+              {holds(session, 'members.member.update') && holds(session, 'staff.profile.read') ? (
+                <TrainerPicker
+                  memberId={id}
+                  current={
+                    member.assignedTrainer
+                      ? {
+                          orgUserId: member.assignedTrainer.id,
+                          fullName: member.assignedTrainer.user.fullName,
+                        }
+                      : null
+                  }
+                  trainers={trainers.map((trainer) => ({
+                    orgUserId: trainer.orgUserId,
+                    fullName: trainer.fullName,
+                    designation: trainer.designation,
+                    memberCount: trainer.memberCount,
+                  }))}
+                />
+              ) : (
+                (member.assignedTrainer?.user.fullName ?? 'Not assigned')
+              )}
+            </dd>
+          </div>
           <Detail label="Occupation" value={member.occupation ?? '—'} />
         </dl>
       </Card>

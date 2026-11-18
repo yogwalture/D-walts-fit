@@ -11,7 +11,7 @@ not code.
 
 ## Status
 
-**Phase 2 — Core Gym Management. In progress.**
+**Phase 3 — Gym Operations. In progress.**
 See [`docs/DEVELOPMENT_STATUS.md`](docs/DEVELOPMENT_STATUS.md) for what is
 complete, pending and blocked. The full architecture and roadmap live in the
 project's architecture document.
@@ -34,8 +34,9 @@ project's architecture document.
 | Attendance | QR and search check-in, eligibility rules at the door, audited overrides, peak hours |
 | Money | Counter payments, GST tax invoices and receipts as PDFs, expenses, the Razorpay webhook |
 | Dashboard | Eight date ranges, six charts, and the three lists a gym actually works from |
-| Web application | Next.js 15 — marketing page, auth, and thirteen screens of the gym portal |
-| Tests | **446 passing**: 40 isolation, 34 auth, 30 account flows, 56 operations, 24 invoices, 42 import, 20 expenses, 12 contracts, 99 HTTP checks, 89 browser checks |
+| Team | Staff profiles, trainer assignment, permission-gated salary, pending invitations |
+| Web application | Next.js 15 — marketing page, auth, and fifteen screens of the gym portal |
+| Tests | **477 passing**: 40 isolation, 34 auth, 30 account flows, 56 operations, 24 invoices, 42 import, 20 expenses, 20 staff, 12 contracts, 106 HTTP checks, 93 browser checks |
 
 ---
 
@@ -88,9 +89,9 @@ pnpm dev                 # http://localhost:3000
 To run everything:
 
 ```bash
-pnpm vitest run                                   # 258 tests against a real database
-bash tests/e2e/http-smoke.sh                      # 99 checks against a running server
-node tests/e2e/phase2-browser.mjs                 # 89 checks in a real browser
+pnpm vitest run                                   # 278 tests against a real database
+bash tests/e2e/http-smoke.sh                      # 106 checks against a running server
+node tests/e2e/phase2-browser.mjs                 # 93 checks in a real browser
 ```
 
 The browser suite needs Playwright and a server on `http://127.0.0.1:3100`

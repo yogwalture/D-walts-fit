@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { email, isoDate, pageQuery, phone, uuid } from './common';
+import { email, isoDate, money, pageQuery, phone, uuid } from './common';
 
 /**
  * Members.
@@ -106,3 +106,42 @@ export type CreateMemberInput = z.infer<typeof createMemberInput>;
 export type UpdateMemberInput = z.infer<typeof updateMemberInput>;
 export type MemberListQuery = z.infer<typeof memberListQuery>;
 export type MedicalDeclarationInput = z.infer<typeof medicalDeclarationInput>;
+
+// ------------------------------------------------------------- trainers ---
+
+/** Null takes the member off their trainer; a uuid puts them on one. */
+export const assignTrainerInput = z.object({
+  memberId: uuid,
+  orgUserId: uuid.nullable(),
+  notes: z.string().trim().max(500).optional(),
+});
+
+/**
+ * A staff profile.
+ *
+ * Salary and bank fields are in the same schema as the rest deliberately:
+ * splitting them would invite a route that forgets to check the second
+ * permission. The service demands `staff.salary.update` the moment one of
+ * them is present, so the check cannot be skipped by the shape of the body.
+ */
+export const staffProfileInput = z.object({
+  employeeCode: z.string().trim().max(40).nullable().optional(),
+  designation: z.string().trim().max(120).nullable().optional(),
+  department: z.string().trim().max(120).nullable().optional(),
+  joiningDate: isoDate.nullable().optional(),
+  specialisations: z.array(z.string().trim().max(80)).max(20).optional(),
+  certifications: z.array(z.string().trim().max(120)).max(20).optional(),
+  bio: z.string().trim().max(2000).nullable().optional(),
+
+  salaryAmount: money.nullable().optional(),
+  salaryCycle: z.enum(['MONTHLY', 'WEEKLY', 'DAILY', 'HOURLY']).nullable().optional(),
+  /** Masked before it ever reaches this server; a full account number is never stored. */
+  bankAccountMasked: z.string().trim().max(40).nullable().optional(),
+  bankIfsc: z
+    .string()
+    .trim()
+    .regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, 'Enter a valid IFSC code')
+    .nullable()
+    .optional(),
+  panMasked: z.string().trim().max(20).nullable().optional(),
+});

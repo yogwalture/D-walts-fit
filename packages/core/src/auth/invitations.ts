@@ -4,6 +4,7 @@ import { assessPassword, hashPassword } from './password';
 import { createSession, type CreatedSession } from './session';
 import { consumeToken, issueToken } from './tokens';
 import { writeAudit } from '../audit/log';
+import { requirePermission, type ResolvedPermissions } from '../rbac/engine';
 
 /**
  * Staff invitations.
@@ -87,6 +88,7 @@ export async function inviteStaff(input: InviteStaffInput): Promise<InviteStaffR
     userId: existingUser?.id ?? null,
     organizationId: input.organizationId,
     roleId: role.id,
+    invitedName: input.fullName,
     branchIds: input.branchIds ?? [],
     createdByUserId: input.invitedByUserId,
     ipAddress: input.ipAddress,
@@ -293,4 +295,141 @@ export async function describeInvitation(rawToken: string): Promise<{
     roleName: role.name,
     expiresAt: record.expiresAt,
   };
+}
+
+// ------------------------------------------------- pending invitations ---
+
+export interface PendingInvitation {
+  id: string;
+  email: string;
+  /** The name the inviter typed; null for invitations sent before it was kept. */
+  fullName: string | null;
+  roleName: string | null;
+  invitedBy: string | null;
+  invitedAt: Date;
+  expiresAt: Date;
+  isExpired: boolean;
+}
+
+/**
+ * Invitations sent and not yet accepted.
+ *
+ * Until this existed, inviting someone left no trace anywhere in the
+ * product: the invitee has no account until they accept, so the team page
+ * showed nothing and the person who sent it could not tell whether it had
+ * gone out, when it expired, or how to take it back.
+ *
+ * `verification_tokens` sits outside row-level security — it is consulted
+ * before any tenant is known, which is the whole reason it is exempt. So the
+ * tenant filter here is explicit and comes from the session, never from a
+ * caller-supplied argument. That is the trade this table makes, and it has
+ * to be honoured at every call site rather than assumed.
+ */
+export async function listPendingInvitations(
+  ctx: { organizationId: string; userId: string },
+  permissions: ResolvedPermissions,
+): Promise<PendingInvitation[]> {
+  requirePermission(permissions, 'org.user.read');
+
+  const db = getJobsClient();
+  const now = new Date();
+
+  const tokens = await db.verificationToken.findMany({
+    where: {
+      type: 'STAFF_INVITATION',
+      organizationId: ctx.organizationId,
+      consumedAt: null,
+      // Expired ones are kept for a week so "it expired" can be told apart
+      // from "it was never sent".
+      expiresAt: { gte: new Date(now.getTime() - 7 * 86_400_000) },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 100,
+    select: {
+      id: true,
+      email: true,
+      invitedName: true,
+      roleId: true,
+      createdAt: true,
+      expiresAt: true,
+      createdByUserId: true,
+    },
+  });
+
+  if (tokens.length === 0) return [];
+
+  const roleIds = [...new Set(tokens.map((t) => t.roleId).filter(Boolean) as string[])];
+  const userIds = [
+    ...new Set(tokens.map((t) => t.createdByUserId).filter(Boolean) as string[]),
+  ];
+
+  const [roles, users] = await Promise.all([
+    roleIds.length > 0
+      ? db.role.findMany({ where: { id: { in: roleIds } }, select: { id: true, name: true } })
+      : Promise.resolve([]),
+    userIds.length > 0
+      ? db.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true } })
+      : Promise.resolve([]),
+  ]);
+
+  const roleById = new Map(roles.map((role) => [role.id, role.name]));
+  const userById = new Map(users.map((user) => [user.id, user.fullName]));
+
+  return tokens.map((token) => ({
+    id: token.id,
+    email: token.email,
+    fullName: token.invitedName ?? null,
+    roleName: token.roleId ? (roleById.get(token.roleId) ?? null) : null,
+    invitedBy: token.createdByUserId ? (userById.get(token.createdByUserId) ?? null) : null,
+    invitedAt: token.createdAt,
+    expiresAt: token.expiresAt,
+    isExpired: token.expiresAt < now,
+  }));
+}
+
+/**
+ * Takes an invitation back.
+ *
+ * Consumed rather than deleted, so the token can never be accepted and the
+ * record of it having been sent survives — someone invited the wrong address
+ * and that is worth being able to see afterwards.
+ */
+export async function revokeInvitation(
+  ctx: { organizationId: string; userId: string },
+  permissions: ResolvedPermissions,
+  invitationId: string,
+  meta: { ipAddress?: string } = {},
+): Promise<void> {
+  requirePermission(permissions, 'org.user.invite');
+
+  const db = getJobsClient();
+
+  // Scoped to this gym explicitly: the table is outside row-level security,
+  // so an id alone must never be enough to reach another gym's invitation.
+  const invitation = await db.verificationToken.findFirst({
+    where: {
+      id: invitationId,
+      type: 'STAFF_INVITATION',
+      organizationId: ctx.organizationId,
+      consumedAt: null,
+    },
+    select: { id: true, email: true },
+  });
+
+  if (!invitation) throw new AppError('NOT_FOUND', 'That invitation was not found.');
+
+  await db.verificationToken.update({
+    where: { id: invitation.id },
+    data: { consumedAt: new Date() },
+  });
+
+  await writeAudit(db, {
+    organizationId: ctx.organizationId,
+    actorUserId: ctx.userId,
+    action: 'org.invitation.revoked',
+    entityType: 'StaffInvitation',
+    entityId: invitation.id,
+    summary: `Invitation to ${invitation.email} was taken back`,
+    ipAddress: meta.ipAddress,
+  });
 }

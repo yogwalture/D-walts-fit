@@ -2975,6 +2975,9 @@ model VerificationToken {
   userId         String? @db.Uuid
   organizationId String? @db.Uuid
   memberId       String? @db.Uuid
+  /// The name the inviter typed, so a pending invitation can be shown as a
+  /// person rather than a bare email address.
+  invitedName    String?
   /// Role to grant on acceptance, for invitations.
   roleId         String? @db.Uuid
   branchIds      String[] @default([])
