@@ -9,3 +9,4 @@ export * from './classes';
 export * from './inventory';
 export * from './staff-attendance';
 export * from './reports';
+export * from './comms';

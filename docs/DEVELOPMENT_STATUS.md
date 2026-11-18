@@ -166,6 +166,18 @@ only when real credentials have been used and a real call has succeeded.
 | Moving a membership between branches | On the row where a receptionist already is; the dates and the money are untouched and only a plan that permits it offers the button |
 | The gym owner is organization-wide | A branch row narrows every grant to that branch, which is right for a manager and wrong for the owner |
 | **Branches suite — 9 tests** | **Including that a gym cannot move a membership to another gym's branch** |
+| **— Phase 4 —** | |
+| WhatsApp, official Cloud API only | Each gym brings its own number and token; one shared number would put every gym's ban risk on one account |
+| Credentials encrypted at rest | AES-256-GCM, key from the environment, write-only through the API — a token comes back only as its last four characters |
+| Connecting verifies by reading, never sending | The connection is switched on only if Meta answers; verifying should not message anybody |
+| Templates | WhatsApp accepts only what it has approved, under the name *it* assigned, so an unapproved template is refused here rather than failing at the API |
+| Editing an approved template loses the approval | Meta approved particular words, not a slot to put words in |
+| Campaigns queue, they do not send | A gym pressing Send and waiting on four hundred provider calls is a gym staring at a timeout |
+| Nothing is "sent" until a provider accepts it | With no connection, messages are **held** — not failed, not ticked — and go the moment it is made |
+| Opt-outs checked twice | At queue time and again at send time, because a STOP arriving in between is exactly when it arrives |
+| Marketing is opt-in, utility is opt-out | Silence is consent for an invoice, not for an offer |
+| Sending is a bounded cron drain | No workers on the deploy target; the batch fits inside the 120-second request limit and one bad row cannot abandon it |
+| **Messaging suite — 24 tests** | **Including that a timeout is retried and a duplicate send is not** |
 
 ### What the isolation suite actually proves
 
@@ -263,6 +275,8 @@ Recorded because each one says something about where the bugs actually are.
 | Column names are camelCase while table names are snake_case | Prisma's default column mapping | Consistent and documented; the RLS generator quotes identifiers correctly |
 | `prisma migrate dev` needs a shadow database | Prisma's drift detection | `shadowDatabaseUrl` on managed providers; `CREATEDB` on the owner role locally |
 | No integration is verified | No real credentials yet, by design | Each will move to "verified" only after a real successful call |
+| WhatsApp has never sent a message | No Meta credentials yet. The plumbing is built and tested against a stubbed provider | A gym's connection is only switched on after Meta answers a real call with its own credentials; until then messages are held, never marked sent |
+| Template approval is recorded, not requested | Submitting a template to Meta needs the WhatsApp Business Management API and an approved app | A gym submits in Meta's dashboard and records the approved name here; the product never claims an approval Meta did not give |
 
 ---
 

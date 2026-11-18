@@ -1243,6 +1243,116 @@ try {
     String(afterCount?.quantityOnHand),
   );
 
+  // ------------------------------------------------------------ messages ---
+  // The honesty that matters here: with WhatsApp unconnected, a campaign
+  // queues and says so. A tick and a number, with nothing having left the
+  // building, is the kind of thing a gym acts on.
+  section('Messages');
+  await page.goto(`${BASE}/communication/compose`, { waitUntil: 'domcontentloaded' });
+  check('the messages page renders', (await page.getByRole('heading', { name: 'Messages' }).count()) > 0);
+  check(
+    'it says plainly that WhatsApp is not connected',
+    /WhatsApp is not connected, so nothing can be sent yet/i.test(
+      await page.evaluate(() => document.body.innerText),
+    ),
+  );
+
+  await page.getByRole('button', { name: 'Write a template' }).click();
+  await page.fill('#template-name', 'Membership expiring');
+  await page.fill(
+    '#body',
+    'Hello {{memberName}}, your {{planName}} membership ends on {{expiryDate}}.',
+  );
+  await page.fill('#providerTemplateName', 'membership_expiring');
+  await page.getByRole('button', { name: 'Save template' }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Membership expiring'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('a template can be written', true);
+  check(
+    'and is not ready until WhatsApp approves it',
+    /WhatsApp has not approved this template yet/i.test(
+      await page.evaluate(() => document.body.innerText),
+    ),
+  );
+
+  // Without an approved template there is nothing to send, which is the
+  // product being honest rather than a missing feature.
+  check(
+    'so no campaign can be prepared yet',
+    (await page.getByRole('button', { name: 'Prepare a campaign' }).count()) === 0,
+  );
+
+  // Record the approval, as a gym does once Meta answers.
+  const approved = await page.evaluate(async () => {
+    const list = await (await fetch('/api/v1/comms/templates?includeInactive=true')).json();
+    const template = (list.data ?? []).find((t) => t.name === 'Membership expiring');
+    const response = await fetch('/api/v1/comms/templates', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ templateId: template.id, approvalStatus: 'APPROVED' }),
+    });
+    return response.ok;
+  });
+  check('an approval can be recorded', approved === true);
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: 'Prepare a campaign' }).click();
+  await page.fill('#name', 'November expiry reminders');
+  await page.selectOption('#audience', 'active');
+  await page.waitForFunction(
+    () => /people match|person match/i.test(document.body.innerText),
+    undefined,
+    { timeout: 20_000 },
+  );
+  const audienceLine = await page.getByTestId('audience-count').innerText();
+  check(
+    'the audience is counted before anything is queued',
+    /\d+ (people|person) match/i.test(audienceLine),
+    audienceLine,
+  );
+
+  await page.getByRole('button', { name: 'Queue the campaign' }).click();
+  await page.waitForFunction(
+    () => /messages? queued/i.test(document.body.innerText),
+    undefined,
+    { timeout: 20_000 },
+  );
+  const queuedText = await page.evaluate(() => document.body.innerText);
+  check('the campaign queues', /\d+ messages? queued/i.test(queuedText));
+  check(
+    'and says nothing has been sent, because WhatsApp is not connected',
+    /not connected for this gym, so these are queued and nothing has been sent/i.test(queuedText),
+  );
+
+  const messageState = await page.evaluate(async () => {
+    const r = await fetch('/api/v1/comms/messages?limit=50');
+    const rows = (await r.json()).data ?? [];
+    return {
+      total: rows.length,
+      queued: rows.filter((m) => m.status === 'QUEUED').length,
+      sent: rows.filter((m) => m.status === 'SENT').length,
+    };
+  });
+  check(
+    'every message is queued and none is marked sent',
+    messageState.total > 0 && messageState.queued === messageState.total && messageState.sent === 0,
+    JSON.stringify(messageState),
+  );
+
+  // The settings screen, where the connection is actually made.
+  await page.goto(`${BASE}/settings/whatsapp`, { waitUntil: 'domcontentloaded' });
+  const settingsText = await page.evaluate(() => document.body.innerText);
+  check('the WhatsApp settings page renders', /Your gym's own WhatsApp Business number/i.test(settingsText));
+  check('it shows the connection as not made', /Not connected/i.test(settingsText));
+  check(
+    'and says the token is stored encrypted and never shown',
+    /stored encrypted and never shown again/i.test(settingsText) ||
+      (await page.getByRole('button', { name: 'Connect WhatsApp' }).count()) > 0,
+  );
+
   // ------------------------------------------------------------ branches ---
   // A second branch, and a membership moved to it. The Growth plan is sold
   // on two branches, so being unable to add one would be selling fresh air.

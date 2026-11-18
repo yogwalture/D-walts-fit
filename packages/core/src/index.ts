@@ -3,6 +3,7 @@ export * from './rbac/engine';
 
 export * from './shared/dates';
 export * from './shared/money';
+export * from './shared/crypto';
 export * from './shared/sequences';
 export * from './shared/spreadsheet';
 
@@ -37,3 +38,6 @@ export * from './crm/service';
 export * from './classes/service';
 export * from './inventory/service';
 export * from './reports/service';
+export * from './comms/templates';
+export * from './comms/service';
+export * from './comms/settings';

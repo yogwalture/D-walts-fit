@@ -616,6 +616,79 @@ if [ -n "$TYPE_ID" ]; then
   check "one entry per member, booked and waiting alike" "3" "$told"
 fi
 
+# ------------------------------------------------------------ messages ---
+printf '\nmessages\n'
+
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/comms/templates")
+check "templates are closed to strangers" "401" "$code"
+
+body=$(curl -s -b "$JAR2" "$BASE/api/v1/comms/whatsapp")
+has "the connection reports itself as not made" "$body" '"isEnabled":false'
+case "$body" in
+  *accessToken*|*Encrypted*) bad "and never returns a token" "no token field" "token present";;
+  *) ok "and never returns a token";;
+esac
+
+TPL_ID=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/comms/templates" \
+  -H 'content-type: application/json' -H "origin: $BASE" \
+  -d '{"name":"Smoke reminder","channel":"WHATSAPP","category":"UTILITY",
+       "body":"Hello {{memberName}}, your membership ends on {{expiryDate}}.",
+       "providerTemplateName":"smoke_reminder"}' | json_field id)
+check "a template is written" "true" "$([ -n "$TPL_ID" ] && echo true || echo false)"
+
+if [ -n "$TPL_ID" ]; then
+  body=$(curl -s -b "$JAR2" "$BASE/api/v1/comms/templates")
+  has "and is not sendable until WhatsApp approves it" "$body" '"sendable":false'
+
+  # Queueing against an unapproved template is refused outright: queueing
+  # four hundred messages that can never send is not a kindness.
+  code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR2" -X POST "$BASE/api/v1/comms/campaigns" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d "{\"name\":\"Doomed\",\"templateId\":\"$TPL_ID\",\"audience\":{\"kind\":\"active\"}}")
+  check "a campaign on an unapproved template is refused" "409" "$code"
+
+  curl -s -o /dev/null -b "$JAR2" -X PATCH "$BASE/api/v1/comms/templates" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d "{\"templateId\":\"$TPL_ID\",\"approvalStatus\":\"APPROVED\"}"
+
+  body=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/comms/campaigns" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d "{\"name\":\"Smoke campaign\",\"templateId\":\"$TPL_ID\",\"audience\":{\"kind\":\"active\"}}")
+  has "a campaign queues" "$body" '"queued"'
+  has "and says nothing has been sent yet" "$body" "nothing has been sent"
+
+  body=$(curl -s -b "$JAR2" "$BASE/api/v1/comms/messages?limit=5")
+  has "the messages are queued, not sent" "$body" '"status":"QUEUED"'
+  case "$body" in
+    *'"status":"SENT"'*) bad "and none claims to be sent" "no SENT" "SENT present";;
+    *) ok "and none claims to be sent";;
+  esac
+fi
+
+# The drain is cron-only: it runs across tenants, which no request carrying
+# a user's session is ever allowed to do.
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/cron/messages")
+check "the send queue cannot be driven without the cron secret" "401" "$code"
+
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR2" -X POST "$BASE/api/cron/messages")
+check "nor by a signed-in gym owner" "401" "$code"
+
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/cron/messages" \
+  -H 'authorization: Bearer not-the-secret')
+check "nor with the wrong secret" "401" "$code"
+
+if [ -n "${CRON_SECRET:-}" ]; then
+  body=$(curl -s -X POST "$BASE/api/cron/messages" -H "authorization: Bearer ${CRON_SECRET}")
+  has "with the right secret it reports what it did" "$body" '"attempted"'
+  has "and holds rather than sending what it cannot" "$body" '"held"'
+  case "$body" in
+    *'"sent":0'*) ok "having sent nothing, because WhatsApp is not connected";;
+    *) bad "having sent nothing, because WhatsApp is not connected" '"sent":0' "$body";;
+  esac
+else
+  printf '  - cron drain checks skipped (set CRON_SECRET to cover them)\n'
+fi
+
 # ------------------------------------------------------------ branches ---
 printf '\nbranches\n'
 
