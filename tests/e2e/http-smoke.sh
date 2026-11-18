@@ -827,6 +827,37 @@ rm -f "$JAR3"
 
 rm -f "$JAR2"
 
+# ------------------------------------------------------- every screen ---
+# A brand-new gym with no data at all. Empty states are where 500s hide:
+# every one of these pages is reached by a link in the sidebar, so one of
+# them throwing is a dead end a real gym meets on their first morning.
+printf '\nevery screen, on a gym with no data\n'
+
+JAR4="$(mktemp)"
+curl -s -c "$JAR4" -o /dev/null -X POST "$BASE/api/v1/auth/register" \
+  -H 'content-type: application/json' \
+  -d "{\"gymName\":\"Empty Gym $STAMP\",\"ownerName\":\"Empty Owner\",
+       \"email\":\"empty.$STAMP@example.com\",\"phone\":\"9876500099\",
+       \"password\":\"$PASSWORD\",\"planKey\":\"ENTERPRISE\",\"acceptedTerms\":true}"
+
+SCREENS="/dashboard /members /members/new /members/import /memberships/plans
+         /memberships/subscriptions /attendance/today /finance/payments
+         /finance/invoices /finance/expenses /crm/leads /classes/schedule
+         /inventory/products /staff /staff/rota /reports /settings/users
+         /settings/branches /settings/security"
+
+screen_failures=0
+for screen in $SCREENS; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR4" "$BASE$screen")
+  [ "$code" = "200" ] || {
+    screen_failures=$((screen_failures + 1))
+    printf '     %s -> %s\n' "$screen" "$code"
+  }
+done
+check "every screen in the sidebar loads with no data" "0" "$screen_failures"
+
+rm -f "$JAR4"
+
 # ----------------------------------------------------------------- logout ---
 printf '\nlogout\n'
 
