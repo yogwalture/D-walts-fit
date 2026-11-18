@@ -37,9 +37,10 @@ project's architecture document.
 | Team | Staff profiles, trainer assignment, permission-gated salary, pending invitations |
 | Enquiries | Walk-ins and calls, follow-ups that move when a call is logged, trials, conversion to a member with the source kept |
 | Classes | A day timetable, capacity that holds under concurrent bookings, a waitlist that promotes on cancellation, weekly repeats, and a register that counts as a gym visit |
+| The shop | Products, a stock ledger that explains every figure, and a counter that raises a real GST invoice |
 | Plans and billing tiers | Chosen at registration, and a feature outside the plan explains itself instead of failing |
-| Web application | Next.js 15 — marketing page, auth, and twenty screens of the gym portal |
-| Tests | **592 passing**: 40 isolation, 38 auth and plan locks, 30 account flows, 56 operations, 24 invoices, 42 import, 20 expenses, 20 staff, 20 enquiries, 30 classes, 13 contracts, 130 HTTP checks, 129 browser checks |
+| Web application | Next.js 15 — marketing page, auth, and twenty-one screens of the gym portal |
+| Tests | **633 passing**: 40 isolation, 38 auth and plan locks, 30 account flows, 56 operations, 24 invoices, 42 import, 20 expenses, 20 staff, 20 enquiries, 30 classes, 20 shop, 13 contracts, 139 HTTP checks, 141 browser checks |
 
 ---
 
@@ -92,7 +93,7 @@ pnpm dev                 # http://localhost:3000
 To run everything:
 
 ```bash
-pnpm vitest run                                   # 333 tests against a real database
+pnpm vitest run                                   # 353 tests against a real database
 bash tests/e2e/http-smoke.sh                      # 106 checks against a running server
 node tests/e2e/phase2-browser.mjs                 # 93 checks in a real browser
 ```

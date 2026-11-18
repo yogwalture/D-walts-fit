@@ -616,6 +616,64 @@ if [ -n "$TYPE_ID" ]; then
   check "one entry per member, booked and waiting alike" "3" "$told"
 fi
 
+# ------------------------------------------------------------- the shop ---
+printf '\nthe shop\n'
+
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/inventory/products")
+check "the shop is closed to strangers" "401" "$code"
+
+PRODUCT_ID=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/inventory/products" \
+  -H 'content-type: application/json' -H "origin: $BASE" \
+  -d '{"name":"Smoke Shake","sellingPrice":"150.00","purchasePrice":"90.00","openingStock":"1","reorderLevel":"1"}' \
+  | json_field id)
+
+check "a product is added" "true" "$([ -n "$PRODUCT_ID" ] && echo true || echo false)"
+
+if [ -n "$PRODUCT_ID" ]; then
+  body=$(curl -s -b "$JAR2" "$BASE/api/v1/inventory/products?lowOnly=true")
+  has "a product at its reorder level is flagged" "$body" "Smoke Shake"
+
+  # Two tills, one unit. Reading the stock and writing it back would sell it
+  # twice and hand a customer an invoice for something that is not there.
+  for n in 1 2; do
+    curl -s -o "/tmp/sale-$n.json" -b "$JAR2" -X POST "$BASE/api/v1/inventory/sales" \
+      -H 'content-type: application/json' -H "origin: $BASE" \
+      -d "{\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":\"1\"}],
+           \"customerName\":\"Counter\",\"payment\":{\"amount\":\"150.00\",\"method\":\"CASH\"}}" &
+  done
+  wait
+
+  SOLD=$(cat /tmp/sale-*.json | grep -o '"invoiceCode"' | wc -l | tr -d ' ')
+  REFUSED=$(cat /tmp/sale-*.json | grep -o '"code":"CONFLICT"' | wc -l | tr -d ' ')
+  rm -f /tmp/sale-*.json
+
+  check "only one of two simultaneous tills sells the last unit" "1" "$SOLD"
+  check "and the other is told it is out of stock" "1" "$REFUSED"
+
+  body=$(curl -s -b "$JAR2" "$BASE/api/v1/inventory/products")
+  left=$(printf '%s' "$body" | python3 -c \
+    "import sys,json;print([p for p in json.load(sys.stdin)['data'] if p['name']=='Smoke Shake'][0]['quantityOnHand'])" \
+    2>/dev/null)
+  check "stock never goes below zero" "0" "$left"
+
+  # The counter cannot claim a gateway payment, the same rule the till obeys.
+  code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR2" -X POST "$BASE/api/v1/inventory/sales" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d "{\"lines\":[{\"productId\":\"$PRODUCT_ID\",\"quantity\":\"1\"}],
+         \"payment\":{\"amount\":\"150.00\",\"method\":\"RAZORPAY\"}}")
+  check "a counter sale cannot be marked as a gateway payment" "422" "$code"
+
+  code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR2" -X POST "$BASE/api/v1/inventory/stock" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d "{\"productId\":\"$PRODUCT_ID\",\"movementType\":\"WASTAGE\",\"quantity\":\"-1\"}")
+  check "wastage without a reason is refused" "422" "$code"
+
+  body=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/inventory/stock" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d "{\"productId\":\"$PRODUCT_ID\",\"movementType\":\"PURCHASE\",\"quantity\":\"24\",\"unitPrice\":\"90.00\"}")
+  has "a delivery is recorded with the balance after it" "$body" '"balanceAfter":"24"'
+fi
+
 # ------------------------------------------------------------ plan limits ---
 # A gym on Starter is told what its plan does not include, in a form the
 # mobile app can branch on. Silence or a 500 here would read as a bug in the

@@ -122,9 +122,9 @@ const NAVIGATION: NavSection[] = [
       },
       {
         href: '/inventory/products',
-        label: 'Inventory',
+        label: 'Shop',
         permission: 'inventory.product.read',
-        built: false,
+        built: true,
       },
     ],
   },

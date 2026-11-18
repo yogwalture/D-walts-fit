@@ -975,16 +975,18 @@ try {
   // Marking the register, which must also count as a gym visit.
   await page.goto(classUrl, { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: 'Present' }).first().click();
-  await page.waitForFunction(
-    () => document.body.innerText.includes('Turned up'),
-    undefined,
-    { timeout: 20_000 },
-  );
-  const presentState = await page.evaluate(async (url) => {
-    const id = url.split('/').pop();
-    const detail = await (await fetch(`/api/v1/classes/${id}`)).json();
-    return detail.data?.roster?.map((r) => r.status) ?? [];
-  }, classUrl);
+  // "Turned up" is a stat-tile label that is on the page either way, so it
+  // is no signal at all: poll the roster itself until the write lands.
+  let presentState = [];
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    presentState = await page.evaluate(async (url) => {
+      const id = url.split('/').pop();
+      const detail = await (await fetch(`/api/v1/classes/${id}`)).json();
+      return detail.data?.roster?.map((r) => r.status) ?? [];
+    }, classUrl);
+    if (presentState.includes('ATTENDED')) break;
+    await page.waitForTimeout(250);
+  }
   check(
     'a member can be marked present',
     presentState.includes('ATTENDED'),
@@ -1017,6 +1019,119 @@ try {
   check(
     'with a number that can be dialled',
     (await page.locator('a[href^="tel:"]').count()) > 0,
+  );
+
+  // ---------------------------------------------------------------- shop ---
+  // The counter: a sale here is a real GST invoice, and the stock behind it
+  // is a ledger rather than a number somebody types over.
+  section('The shop');
+  await page.goto(`${BASE}/inventory/products`, { waitUntil: 'domcontentloaded' });
+  check('the shop renders', (await page.getByRole('heading', { name: 'Shop' }).count()) > 0);
+  check(
+    'an empty shop says what to do first',
+    (await page.getByText(/Nothing on the shelf yet/i).count()) > 0,
+  );
+
+  await page.getByRole('button', { name: 'Add a product' }).click();
+  await page.fill('#name', 'Protein Bar');
+  await page.fill('#sellingPrice', '100');
+  await page.fill('#purchasePrice', '60');
+  await page.fill('#openingStock', '4');
+  await page.fill('#reorderLevel', '2');
+  await page.getByRole('button', { name: 'Add product' }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Protein Bar'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('a product can be added', true);
+  check(
+    'and its opening stock is on the shelf',
+    /4 piece/.test(await page.evaluate(() => document.body.innerText)),
+  );
+
+  // Ring up a sale of two, which must take the money and the stock together.
+  await page.getByRole('button', { name: 'Sell at the counter' }).click();
+  await page.getByRole('button', { name: /Protein Bar/ }).first().click();
+  await page.getByRole('button', { name: /Protein Bar/ }).first().click();
+  const tillTotal = await page.getByTestId('till-total').innerText();
+  check('the till shows the running total', /200/.test(tillTotal), tillTotal);
+
+  await page.getByRole('button', { name: /^Take / }).click();
+  // "invoice" alone would match the sidebar, so wait for the sentence the
+  // till itself writes.
+  await page.waitForFunction(
+    () => /taken — invoice/i.test(document.body.innerText),
+    undefined,
+    { timeout: 20_000 },
+  );
+  const saleText = await page.evaluate(() => document.body.innerText);
+  check(
+    'the sale names its invoice, not just "done"',
+    /taken — invoice INV/i.test(saleText),
+    (saleText.split('\n').find((l) => /taken/i.test(l)) ?? '').slice(0, 120),
+  );
+  check(
+    'and its receipt',
+    /Receipt RCP/i.test(saleText),
+    (saleText.split('\n').find((l) => /receipt/i.test(l)) ?? '').slice(0, 120),
+  );
+
+  await page.getByRole('button', { name: 'Done' }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Stock movements'),
+    undefined,
+    { timeout: 20_000 },
+  );
+
+  const shopState = await page.evaluate(async () => {
+    const products = await (await fetch('/api/v1/inventory/products')).json();
+    const movements = await (await fetch('/api/v1/inventory/stock')).json();
+    return { products: products.data ?? [], movements: movements.data ?? [] };
+  });
+  const bar = shopState.products.find((p) => p.name === 'Protein Bar');
+  check('the sale took the stock down', bar?.quantityOnHand === '2', JSON.stringify(bar));
+  check(
+    'and is at its reorder level, so it is flagged',
+    bar?.needsReorder === true,
+    String(bar?.needsReorder),
+  );
+  check(
+    'the movement carries the balance it left behind',
+    shopState.movements[0]?.movementType === 'SALE' &&
+      shopState.movements[0]?.balanceAfter === '2',
+    JSON.stringify(shopState.movements[0] ?? null),
+  );
+
+  // One set of documents: the counter sale is in the invoice list with the
+  // membership sales, which is what makes the books reconcilable.
+  await page.goto(`${BASE}/finance/invoices`, { waitUntil: 'domcontentloaded' });
+  check(
+    'the counter sale is in the same invoice list as a membership',
+    /Protein Bar|200\.00/.test(await page.evaluate(() => document.body.innerText)),
+  );
+
+  // A correction is a signed difference, never a new total.
+  await page.goto(`${BASE}/inventory/products`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: 'Stock in or correct' }).click();
+  await page.selectOption('#movementType', 'ADJUSTMENT');
+  await page.fill('#quantity', '-1');
+  await page.fill('#notes', 'One missing at the count');
+  await page.getByRole('button', { name: 'Record' }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Stock movements'),
+    undefined,
+    { timeout: 20_000 },
+  );
+
+  const afterCount = await page.evaluate(async () => {
+    const r = await fetch('/api/v1/inventory/products');
+    return ((await r.json()).data ?? []).find((p) => p.name === 'Protein Bar');
+  });
+  check(
+    'a correction moves the figure by the difference',
+    afterCount?.quantityOnHand === '1',
+    String(afterCount?.quantityOnHand),
   );
 
   // --------------------------------------------------------- the plan wall ---

@@ -141,6 +141,13 @@ only when real credentials have been used and a real call has succeeded.
 | The class register | Marking a member present also records their gym visit, so a member who only comes to the 7am class is not counted as never attending |
 | Cancelling a class | Cancels its bookings and hands back the list of members to ring — one entry per person, however many sessions they had booked |
 | **Classes suite — 30 tests** | **Including three genuinely concurrent bookings for one place** |
+| The shop and the counter | A sale raises a real GST invoice in the same series as a membership, so the accountant reconciles one set of documents |
+| Stock as a ledger | Every change writes a movement carrying the balance after it; a correction is a signed difference, never a new total typed over the old one |
+| Stock cannot be oversold | The product row is locked for the duration of a sale, so the last unit cannot go to two tills |
+| Wastage needs a reason | Stock leaving without a sale is otherwise indistinguishable from theft in the audit trail |
+| A walk-in pays in full | There is no account to chase a balance on; a member may owe |
+| Reorder level | A product at or below it is flagged, because a gym that waits for zero has already turned somebody away |
+| **Shop suite — 20 tests** | **Including two concurrent sales of a single unit** |
 
 ### What the isolation suite actually proves
 
@@ -165,7 +172,6 @@ Acting as Gym A, against Gym B's real record ids:
 | Item | Note |
 | --- | --- |
 | Transferring a membership between branches | Works over the API and is tested; no screen offers it yet |
-| Inventory and point of sale | Models exist; no service or screen yet |
 | Staff attendance, shifts and leave | Models and permissions exist; no service or screen yet |
 | Devanagari and other Indic names on the PDF | pdfkit cannot shape complex scripts. `hasUnsupportedScript` detects the case so it can be reported rather than printed as boxes; a gym recording names in Marathi needs a different renderer |
 | Razorpay checkout in the browser | The server half is built and tested; the checkout flow needs real test credentials |
@@ -245,6 +251,18 @@ Recorded because each one says something about where the bugs actually are.
 ---
 
 ## Changelog
+
+**18 November 2026 — The shop, and stock that explains itself**
+What a gym sells over the counter is a taxable supply, so a counter sale
+raises a real GST invoice in the same gapless series as a membership and the
+money lands in the same till figure — one set of documents to reconcile
+rather than two. Stock is a ledger: every change writes a movement carrying
+the balance it left behind, a correction is a signed difference rather than
+a new total typed over the old one, and wastage needs a reason, because
+stock leaving without a sale is otherwise indistinguishable from theft. The
+last protein bar is the same race as the last place in a class and is held
+the same way — two tills, one unit, one sale. 626 checks passing: 353 tests,
+139 HTTP checks and 141 browser checks.
 
 **18 November 2026 — Classes, capacity and a waitlist that moves**
 Two things decide whether a gym timetable works, and the calendar is

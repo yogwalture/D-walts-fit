@@ -6,3 +6,4 @@ export * from './attendance';
 export * from './finance';
 export * from './crm';
 export * from './classes';
+export * from './inventory';
