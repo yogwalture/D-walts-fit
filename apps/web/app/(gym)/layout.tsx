@@ -108,6 +108,7 @@ const NAVIGATION: NavSection[] = [
     heading: 'Operations',
     items: [
       { href: '/staff', label: 'Team', permission: 'staff.profile.read', built: true },
+      { href: '/staff/rota', label: 'Rota', permission: 'staff.attendance.read', built: true },
       {
         href: '/fitness/workout-plans',
         label: 'Workouts',

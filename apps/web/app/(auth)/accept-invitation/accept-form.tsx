@@ -3,7 +3,16 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-export function AcceptInvitationForm({ token, email }: { token: string; email: string }) {
+export function AcceptInvitationForm({
+  token,
+  email,
+  invitedName,
+}: {
+  token: string;
+  email: string;
+  /** Prefilled from the invitation, and editable: it is their name, not ours. */
+  invitedName?: string | null;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +73,7 @@ export function AcceptInvitationForm({ token, email }: { token: string; email: s
           autoComplete="name"
           required
           autoFocus
+          defaultValue={invitedName ?? ''}
           className="input mt-1.5"
         />
       </div>

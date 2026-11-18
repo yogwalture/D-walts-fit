@@ -43,7 +43,11 @@ export default async function AcceptInvitationPage({
       subtitle={`You have been invited as ${invitation.roleName}.`}
       width="md"
     >
-      <AcceptInvitationForm token={token!} email={invitation.email} />
+      <AcceptInvitationForm
+        token={token!}
+        email={invitation.email}
+        invitedName={invitation.invitedName}
+      />
     </AuthShell>
   );
 }

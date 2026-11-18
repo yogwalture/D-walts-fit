@@ -148,6 +148,14 @@ only when real credentials have been used and a real call has succeeded.
 | A walk-in pays in full | There is no account to chase a balance on; a member may owe |
 | Reorder level | A product at or below it is flagged, because a gym that waits for zero has already turned somebody away |
 | **Shop suite — 20 tests** | **Including two concurrent sales of a single unit** |
+| The staff register | Everybody on the team appears, including those nobody has marked — at ten in the morning the question is who has *not* arrived |
+| The rota | Weekly shifts or a one-off for a date, with the one-off beating the pattern |
+| Leave | Requested, approved or refused, with overlapping requests blocked |
+| Approved leave writes the attendance | Otherwise the register shows a sanctioned absence as an unexplained one and payroll docks a day the gym agreed to |
+| A worked day is never overwritten | Approving leave over a day already marked present leaves it alone |
+| Nobody approves their own leave | The owner holds every permission in the gym and still cannot sanction their own absence |
+| An invitation prefills the invitee's name | The inviter already typed it; the invitee corrects it rather than typing it again |
+| **Rota and leave suite — 21 tests** | **Including that a person with no branch is still on the rota** |
 
 ### What the isolation suite actually proves
 
@@ -172,7 +180,6 @@ Acting as Gym A, against Gym B's real record ids:
 | Item | Note |
 | --- | --- |
 | Transferring a membership between branches | Works over the API and is tested; no screen offers it yet |
-| Staff attendance, shifts and leave | Models and permissions exist; no service or screen yet |
 | Devanagari and other Indic names on the PDF | pdfkit cannot shape complex scripts. `hasUnsupportedScript` detects the case so it can be reported rather than printed as boxes; a gym recording names in Marathi needs a different renderer |
 | Razorpay checkout in the browser | The server half is built and tested; the checkout flow needs real test credentials |
 | First deployment to Hostinger over HTTPS | Blocked: needs a database connection string and a GitHub repository |
@@ -251,6 +258,25 @@ Recorded because each one says something about where the bugs actually are.
 ---
 
 ## Changelog
+
+**18 November 2026 — The rota, and a trainer who was invisible**
+Staff attendance, shifts and leave are one thing rather than three: approving
+leave writes the attendance for those days, so the register does not show a
+sanctioned absence as an unexplained one and whoever runs payroll does not
+dock a day the gym already agreed to. A day already marked present is left
+alone. Nobody approves their own leave — the owner holds every permission in
+the gym and still cannot sanction their own absence.
+
+Building the rota screen surfaced a bug of the same family as the import
+that gave members no branch. A gym owner is put on the main branch at
+registration, which narrows their permissions to branch scope; the rota then
+required a branch row to list somebody, and the invitation form does not ask
+for one. So **a trainer who had accepted their invitation never appeared on
+the rota at all** — could not be marked in, could not be given a shift.
+Somebody with no branch works for the whole gym and is now listed as such.
+The browser suite now also accepts the invitation the way the invitee would,
+from the link in their email, which is what caught it. 671 checks passing:
+374 tests, 146 HTTP checks and 151 browser checks.
 
 **18 November 2026 — The shop, and stock that explains itself**
 What a gym sells over the counter is a taxable supply, so a counter sale

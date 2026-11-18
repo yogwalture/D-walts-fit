@@ -20,6 +20,7 @@ export * from './audit/log';
 export * from './org/provisioning';
 export * from './org/staff';
 export * from './staff/service';
+export * from './staff/attendance';
 export * from './platform/console';
 export * from './platform/plan-features';
 

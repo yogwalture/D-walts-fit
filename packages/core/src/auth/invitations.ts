@@ -251,6 +251,8 @@ export async function acceptInvitation(input: {
 /** Preview for the acceptance screen: who invited you, and to what. */
 export async function describeInvitation(rawToken: string): Promise<{
   email: string;
+  /** What the inviter typed, so the invitee corrects a name rather than typing one. */
+  invitedName: string | null;
   organizationName: string;
   roleName: string;
   expiresAt: Date;
@@ -263,6 +265,7 @@ export async function describeInvitation(rawToken: string): Promise<{
     select: {
       type: true,
       email: true,
+      invitedName: true,
       organizationId: true,
       roleId: true,
       expiresAt: true,
@@ -291,6 +294,7 @@ export async function describeInvitation(rawToken: string): Promise<{
 
   return {
     email: record.email,
+    invitedName: record.invitedName,
     organizationName: organization.name,
     roleName: role.name,
     expiresAt: record.expiresAt,

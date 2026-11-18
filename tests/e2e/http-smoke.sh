@@ -616,6 +616,47 @@ if [ -n "$TYPE_ID" ]; then
   check "one entry per member, booked and waiting alike" "3" "$told"
 fi
 
+# ---------------------------------------------------------------- rota ---
+printf '\nrota and leave\n'
+
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/staff/attendance")
+check "the rota is closed to strangers" "401" "$code"
+
+body=$(curl -s -b "$JAR2" "$BASE/api/v1/staff/attendance")
+has "the register lists the team" "$body" '"fullName"'
+
+ME=$(printf '%s' "$body" | python3 -c \
+  "import sys,json;print(json.load(sys.stdin)['data'][0]['orgUserId'])" 2>/dev/null)
+
+if [ -n "$ME" ]; then
+  body=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/staff/attendance" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d "{\"orgUserId\":\"$ME\",\"action\":\"IN\"}")
+  has "somebody can be marked in" "$body" '"status":"PRESENT"'
+
+  code=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR2" -X POST "$BASE/api/v1/staff/shifts" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d "{\"orgUserId\":\"$ME\",\"weekday\":2,\"startTime\":\"18:00\",\"endTime\":\"09:00\"}")
+  check "a shift ending before it starts is refused" "422" "$code"
+
+  LEAVE_ID=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/staff/leave" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d '{"leaveType":"Casual","fromDate":"2027-02-10","toDate":"2027-02-11"}' | json_field id)
+  check "leave can be requested" "true" "$([ -n "$LEAVE_ID" ] && echo true || echo false)"
+
+  # Nobody sanctions their own absence, however senior — the owner holds
+  # every permission in the gym and still cannot.
+  body=$(curl -s -b "$JAR2" -X PATCH "$BASE/api/v1/staff/leave" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d "{\"leaveId\":\"$LEAVE_ID\",\"approve\":true}")
+  has "nobody approves their own leave" "$body" "Somebody else has to approve"
+
+  body=$(curl -s -b "$JAR2" -X POST "$BASE/api/v1/staff/leave" \
+    -H 'content-type: application/json' -H "origin: $BASE" \
+    -d '{"leaveType":"Sick","fromDate":"2027-02-11","toDate":"2027-02-12"}')
+  has "overlapping leave is refused" "$body" "already has leave"
+fi
+
 # ------------------------------------------------------------- the shop ---
 printf '\nthe shop\n'
 

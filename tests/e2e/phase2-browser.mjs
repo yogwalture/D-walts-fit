@@ -12,6 +12,7 @@
  */
 
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 
 /**
  * Playwright may be a project dependency or installed globally on the build
@@ -37,6 +38,25 @@ const resolvePlaywright = () => {
 const { chromium } = resolvePlaywright();
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3100';
+// Where the server prints the emails it would have sent. An invitation token
+// never reaches the browser by design, so this is how the suite acts as the
+// invitee — exactly as they would, from the link in their inbox.
+const SERVER_LOG = process.env.SERVER_LOG ?? '/tmp/web.log';
+
+function invitationLinkFor(email) {
+  try {
+    const log = readFileSync(SERVER_LOG, 'utf8');
+    const blocks = log.split('─── email');
+    for (let index = blocks.length - 1; index >= 0; index -= 1) {
+      if (!blocks[index].includes(email)) continue;
+      const match = blocks[index].match(/https?:\/\/[^\s]*accept-invitation\?token=[A-Za-z0-9_-]+/);
+      if (match) return match[0];
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
 const stamp = Date.now();
 
 const gym = {
@@ -690,14 +710,44 @@ try {
 
   check('a trainer can be invited', invited.ok === true, JSON.stringify(invited));
 
-  // The invitation token is not returned to the browser by design, so accept
-  // it the way the invitee would: from the link in their email. Here that
-  // means reading it from the server's own log line.
-  const acceptLink = await page.evaluate(async () => {
+  // The invitation token never reaches the browser by design, so accept it
+  // the way the invitee would: from the link in their email, in their own
+  // browser — which is also what proves the owner's session is untouched.
+  const acceptLink = invitationLinkFor(trainerEmail);
+  check('the invitation email carries a link', acceptLink !== null, String(acceptLink));
+
+  if (acceptLink) {
+    const invitee = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const inviteePage = await invitee.newPage();
+    await inviteePage.goto(acceptLink.replace(/^https?:\/\/[^/]+/, BASE), {
+      waitUntil: 'domcontentloaded',
+    });
+    // The name arrives prefilled from the invitation; the invitee can change
+    // it, because it is their name rather than the inviter's idea of it.
+    const prefilled = await inviteePage.inputValue('#fullName');
+    check('the invitee’s name is prefilled from the invitation', prefilled === 'Suresh Pawar', prefilled);
+
+    await inviteePage.fill('#password', gym.password);
+    await inviteePage.click('button[type="submit"]');
+
+    const landed = await inviteePage
+      .waitForURL(/\/dashboard/, { timeout: 30_000 })
+      .then(() => true)
+      .catch(() => false);
+    check(
+      'the invitee sets their own password and gets in',
+      landed,
+      landed ? '' : await inviteePage.evaluate(() => document.body.innerText.slice(0, 200)),
+    );
+    await invitee.close();
+  }
+
+  const stillOwner = await page.evaluate(async () => {
     const response = await fetch('/api/v1/session');
-    return response.ok;
+    const body = await response.json();
+    return body.data?.role?.key ?? null;
   });
-  check('the session survives the invite', acceptLink === true);
+  check('the owner’s own session is untouched by it', stillOwner === 'GYM_OWNER', String(stillOwner));
 
   // Assign the member to a trainer through the profile, once one exists.
   await page.goto(`${BASE}/staff`, { waitUntil: 'domcontentloaded' });
@@ -1019,6 +1069,65 @@ try {
   check(
     'with a number that can be dialled',
     (await page.locator('a[href^="tel:"]').count()) > 0,
+  );
+
+  // ---------------------------------------------------------------- rota ---
+  // Everybody on the team appears, including those who have not turned up —
+  // which is the question a manager actually has at ten in the morning.
+  section('The rota');
+  await page.goto(`${BASE}/staff/rota`, { waitUntil: 'domcontentloaded' });
+  check('the rota renders', (await page.getByRole('heading', { name: 'Rota' }).count()) > 0);
+
+  const rotaText = await page.evaluate(() => document.body.innerText);
+  check('it lists people who have not been marked', /not marked/i.test(rotaText));
+  check(
+    'including the invited trainer',
+    rotaText.includes('Suresh Pawar'),
+    rotaText.split('\n').filter((l) => /Suresh/.test(l)).join(' | '),
+  );
+
+  await page.getByRole('button', { name: 'In', exact: true }).first().click();
+  await page.waitForFunction(
+    () => /\bpresent\b/i.test(document.body.innerText),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('somebody can be marked in', true);
+
+  // Leave, and the thing that makes it worth having: approving writes the
+  // attendance, so a sanctioned absence is not shown as an unexplained one.
+  await page.getByRole('button', { name: 'Record leave' }).click();
+  await page.selectOption('#leave-who', { label: 'Suresh Pawar' });
+  await page.fill('#leaveType', 'Casual');
+  const leaveFrom = new Date(Date.now() + 5 * 86_400_000).toISOString().slice(0, 10);
+  const leaveTo = new Date(Date.now() + 6 * 86_400_000).toISOString().slice(0, 10);
+  await page.fill('#fromDate', leaveFrom);
+  await page.fill('#toDate', leaveTo);
+  await page.getByRole('button', { name: 'Record leave' }).last().click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Leave to decide'),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('leave can be recorded for somebody', true);
+
+  await page.getByRole('button', { name: 'Approve' }).first().click();
+  await page.waitForFunction(
+    () => /day\(s\) marked on the register/i.test(document.body.innerText),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('approving says how many days it wrote onto the register', true);
+
+  const leaveDays = await page.evaluate(async (from) => {
+    const r = await fetch(`/api/v1/staff/attendance?date=${from}`);
+    const body = await r.json();
+    return (body.data ?? []).map((row) => row.status);
+  }, leaveFrom);
+  check(
+    'and the register shows the leave, not an unexplained absence',
+    leaveDays.includes('ON_LEAVE'),
+    JSON.stringify(leaveDays),
   );
 
   // ---------------------------------------------------------------- shop ---
