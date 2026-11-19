@@ -193,6 +193,8 @@ export const PERMISSIONS: PermissionDefinition[] = [
   p('platform.gym.suspend', 'Suspend a gym'),
   p('platform.gym.activate', 'Reactivate a gym'),
   p('platform.plan.manage', 'Manage SaaS plans and pricing'),
+  p('platform.trial.extend', 'Extend a gym\'s trial'),
+  p('platform.limit.override', 'Agree limits with one gym, outside its plan'),
   p('platform.revenue.read', 'View platform revenue'),
   p('platform.feature.manage', 'Manage feature availability'),
   p('platform.support.manage', 'Handle support tickets'),

@@ -19,7 +19,8 @@
     "db:migrate": "pnpm --filter @gym/db migrate",
     "db:migrate:deploy": "pnpm --filter @gym/db migrate:deploy",
     "db:seed": "pnpm --filter @gym/db seed",
-    "db:reset": "pnpm --filter @gym/db reset"
+    "db:reset": "pnpm --filter @gym/db reset",
+    "platform:admin": "pnpm --filter @gym/db platform:admin"
   },
   "devDependencies": {
     "turbo": "^2.3.3",

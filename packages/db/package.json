@@ -19,7 +19,8 @@
     "studio": "prisma studio",
     "test": "vitest run",
     "test:isolation": "vitest run --dir ../../tests/isolation",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "platform:admin": "node scripts/platform-admin.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

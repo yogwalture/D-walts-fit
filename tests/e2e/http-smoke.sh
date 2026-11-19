@@ -1035,6 +1035,107 @@ check "every screen in the sidebar loads with no data" "0" "$screen_failures"
 
 rm -f "$JAR4"
 
+# ------------------------------------------------------- platform console ---
+#
+# The business of selling the software. Two things are checked harder than the
+# rest: that a gym's own records are unreachable from here, and that the
+# levers write a reason into the gym's own audit log.
+printf '\nplatform console\n'
+
+PJAR="$(mktemp)"
+PEMAIL="e2e.platform.${STAMP}@example.com"
+
+# Platform staff are made the way an operator makes them: register normally,
+# then promote. There is no seeded super admin with a known password.
+body=$(curl -s -X POST "$BASE/api/v1/auth/register" \
+  -H 'content-type: application/json' \
+  -d "{\"gymName\":\"E2E Platform $STAMP\",\"ownerName\":\"E2E Platform\",\"email\":\"$PEMAIL\",
+       \"phone\":\"9876512348\",\"password\":\"$PASSWORD\",\"planKey\":\"GROWTH\",
+       \"acceptedTerms\":true}")
+has "a platform operator starts as an ordinary account" "$body" '"slug"'
+
+promote=$(cd "$(dirname "$0")/../.." && pnpm platform:admin --email "$PEMAIL" 2>&1)
+has "and is promoted by the operator script, not a seeded password" "$promote" "is now a platform administrator"
+
+body=$(curl -s -c "$PJAR" -X POST "$BASE/api/v1/auth/login" \
+  -H 'content-type: application/json' \
+  -d "{\"email\":\"$PEMAIL\",\"password\":\"$PASSWORD\"}")
+has "platform staff can sign in" "$body" '"user"'
+
+code=$(curl -s -b "$PJAR" -o /tmp/e2e.admin -w '%{http_code}' "$BASE/admin")
+check "the console opens for platform staff" "200" "$code"
+has "it shows MRR"                  "$(cat /tmp/e2e.admin)" "MRR"
+has "and the call list"             "$(cat /tmp/e2e.admin)" "Worth a call today"
+has "and names the boundary on the page" "$(cat /tmp/e2e.admin)" "kept separate"
+
+# The gym the owner registered at the top of this file, seen commercially.
+ORG=$(curl -s -b "$PJAR" "$BASE/api/v1/platform/gyms?search=E2E+Fitness" \
+  | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+[ -n "$ORG" ] && ok "the gym list finds a gym by name" \
+  || bad "the gym list finds a gym by name" "an id" "nothing"
+
+body=$(curl -s -b "$PJAR" "$BASE/api/v1/platform/gyms/$ORG")
+has "the detail view carries the plan"          "$body" '"planName"'
+has "and usage counted against it"              "$body" '"usage"'
+has "and what we have invoiced them"            "$body" '"invoices"'
+hasnt "but no member of theirs"                 "$body" '"members":['
+hasnt "and no payment of theirs"                "$body" '"payments"'
+
+body=$(curl -s -b "$PJAR" "$BASE/api/v1/platform/attention")
+has "the call list is reachable over the API" "$body" '"data"'
+
+body=$(curl -s -b "$PJAR" -X POST "$BASE/api/v1/platform/gyms/$ORG/trial" \
+  -H 'content-type: application/json' -d '{"days":7,"reason":"E2E: owner asked for a week"}')
+has "a trial can be extended" "$body" '"trialEndsAt"'
+
+body=$(curl -s -b "$PJAR" -X POST "$BASE/api/v1/platform/gyms/$ORG/trial" \
+  -H 'content-type: application/json' -d '{"days":7,"reason":"no"}')
+has "but not without a reason worth reading" "$body" "VALIDATION_FAILED"
+
+body=$(curl -s -b "$PJAR" -X POST "$BASE/api/v1/platform/gyms/$ORG/trial" \
+  -H 'content-type: application/json' -d '{"days":900,"reason":"E2E: forever"}')
+has "and not forever" "$body" "VALIDATION_FAILED"
+
+body=$(curl -s -b "$PJAR" -X POST "$BASE/api/v1/platform/gyms/$ORG/limits" \
+  -H 'content-type: application/json' \
+  -d '{"overrides":{"maxBranches":6},"reason":"E2E: six sites agreed"}')
+has "a limit can be agreed with one gym" "$body" '"ok":true'
+
+body=$(curl -s -b "$JAR" "$BASE/api/v1/org/billing")
+has "and the gym sees the agreed limit on their own plan" "$body" '"limit":6'
+
+body=$(curl -s -b "$PJAR" -X POST "$BASE/api/v1/platform/gyms/$ORG/limits" \
+  -H 'content-type: application/json' \
+  -d '{"overrides":{"price":0},"reason":"E2E: trying it on"}')
+has "a limit that is not a limit is refused" "$body" "VALIDATION_FAILED"
+
+body=$(curl -s -b "$PJAR" -X POST "$BASE/api/v1/platform/gyms/$ORG/enter" \
+  -H 'content-type: application/json' -d '{"reason":"short"}')
+has "entering a gym needs a recorded reason" "$body" "VALIDATION_FAILED"
+
+body=$(curl -s -b "$PJAR" -X POST "$BASE/api/v1/platform/gyms/$ORG/enter" \
+  -H 'content-type: application/json' -d '{"reason":"E2E: checking a failed payment for them"}')
+has "and is otherwise allowed" "$body" '"ok":true'
+
+# The point of all of the above: the gym can see what we did on their account.
+body=$(curl -s -b "$JAR" "$BASE/api/v1/org/audit?pageSize=50")
+has "the gym owner can read that we extended their trial" "$body" "platform.trial.extended"
+has "that we agreed a limit"                              "$body" "platform.limits.overridden"
+has "and that we entered their gym, with the reason"      "$body" "checking a failed payment"
+
+# And still cannot look the other way. This operator has a gym of their own
+# — registration always makes one — so /api/v1/members answers for THAT gym.
+# The point is that being platform staff adds nothing: the member the other
+# gym imported earlier is not in it.
+body=$(curl -s -b "$PJAR" "$BASE/api/v1/members")
+hasnt "platform staff cannot read another gym's members through the ordinary API" \
+  "$body" "Smoke Import"
+
+body=$(curl -s -b "$PJAR" "$BASE/api/v1/session")
+hasnt "and hold no gym permission over anyone else's gym" "$body" "\"organizationId\":\"$ORG\""
+
+rm -f "$PJAR" /tmp/e2e.admin
+
 # ----------------------------------------------------------------- logout ---
 printf '\nlogout\n'
 

@@ -27,6 +27,16 @@ export class MissingTenantContextError extends Error {
   }
 }
 
+export class NotPlatformStaffError extends Error {
+  constructor(userId: string) {
+    super(
+      `Refused platform context for user ${userId}: not active platform staff. ` +
+        'The platform console is not reachable by a gym\'s own users.',
+    );
+    this.name = 'NotPlatformStaffError';
+  }
+}
+
 export class CrossTenantWriteError extends Error {
   constructor(model: string, supplied: string, actual: string) {
     super(
@@ -210,6 +220,77 @@ export async function withTenant<T>(
 }
 
 /**
+ * The tables platform context may touch.
+ *
+ * This list is not a policy of its own: it mirrors, exactly, the tables whose
+ * row-level-security policy carries `is_platform_context()`. The database is
+ * the boundary; this is a copy kept in step with it so a refused read fails
+ * loudly here instead of returning an empty result there. Change it only when
+ * the generated RLS changes, and in the same direction.
+ */
+const PLATFORM_MODELS = new Set([
+  'AuditLog',
+  'OrgFeatureOverride',
+  'OrgUser',
+  'SupportTicket',
+  'TenantInvoice',
+  'TenantPayment',
+  'TenantSubscription',
+  'UsageCounter',
+]);
+
+export class PlatformScopeError extends Error {
+  constructor(model: string, operation: string) {
+    super(
+      `Refused ${operation} on "${model}" from platform context: row-level ` +
+        'security would answer nothing here, and a silent empty result reads ' +
+        'like a gym with no records. Read it inside withTenant({ isPlatform: ' +
+        'true }), which writes an audit row the gym owner can see — or, for a ' +
+        'cross-tenant count, use getJobsClient() and read counts only.',
+    );
+    this.name = 'PlatformScopeError';
+  }
+}
+
+/**
+ * Turns the database's silence into an error with a name on it.
+ *
+ * Platform context can read the commercial tables and nothing else: the
+ * operational policies have no `is_platform_context()` escape, so
+ * `tx.member.findMany()` there returns `[]` rather than refusing. That empty
+ * array is the dangerous part — it is indistinguishable from a gym with no
+ * members, and a console built on it would quietly show zeros. So the model
+ * is checked before the query runs and the refusal says which call was meant.
+ *
+ * Its limit, stated plainly because a half-understood guard is worse than
+ * none: Prisma extensions see the top-level model only, so a nested
+ * `organization.findUnique({ include: { members: true } })` is not caught
+ * here. Row-level security still empties it; this just will not explain why.
+ */
+export function platformExtension() {
+  return Prisma.defineExtension({
+    name: 'platform-scope',
+    query: {
+      $allModels: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async $allOperations({ model, operation, args, query }: any) {
+          if (!TENANT_MODELS.has(model) || PLATFORM_MODELS.has(model)) {
+            return query(args);
+          }
+          throw new PlatformScopeError(model, operation);
+        },
+      },
+    },
+  });
+}
+
+export type PlatformPrismaClient = ReturnType<typeof platformClient>;
+
+export function platformClient() {
+  return basePrisma.$extends(platformExtension());
+}
+
+/**
  * Platform-staff context for platform-owned tables (SaaS plans, tenant
  * subscriptions, platform billing, support tickets, the platform audit log).
  *
@@ -219,9 +300,23 @@ export async function withTenant<T>(
  */
 export async function withPlatform<T>(
   userId: string,
-  fn: (tx: Omit<ReturnType<typeof basePrisma.$extends>, '$transaction'>) => Promise<T>,
+  fn: (tx: Omit<PlatformPrismaClient, '$transaction'>) => Promise<T>,
 ): Promise<T> {
-  return basePrisma.$transaction(async (tx) => {
+  // Checked here rather than only at the route, because the route guard is
+  // one careless refactor away from being the only thing between a signed-in
+  // gym owner and every other gym's commercial figures. Platform context is
+  // never opened for somebody who is not platform staff.
+  const actor = await basePrisma.user.findUnique({
+    where: { id: userId },
+    select: { isPlatformAdmin: true, status: true },
+  });
+  if (!actor?.isPlatformAdmin || actor.status !== 'ACTIVE') {
+    throw new NotPlatformStaffError(userId);
+  }
+
+  const client = basePrisma.$extends(platformExtension());
+
+  return client.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('app.current_user_id', ${userId}::text, true)`;
     await tx.$executeRaw`SELECT set_config('app.is_platform', 'on', true)`;
     return fn(tx as never);

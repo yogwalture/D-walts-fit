@@ -5,10 +5,15 @@ export {
   tenantClient,
   tenantExtension,
   tenantModelNames,
+  platformClient,
+  platformExtension,
   MissingTenantContextError,
   CrossTenantWriteError,
+  NotPlatformStaffError,
+  PlatformScopeError,
   type TenantContext,
   type TenantPrismaClient,
+  type PlatformPrismaClient,
 } from './tenant-client';
 
 export { getJobsClient, Prisma } from './client';

@@ -13,6 +13,7 @@
 
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 /**
  * Playwright may be a project dependency or installed globally on the build
@@ -1870,7 +1871,187 @@ try {
   expectStatus(403, 'GET', '/api/v1/crm/leads');
   await starterPage.close();
 
+  // Registering that gym in this context replaced the session cookie, so
+  // `page` is signed in as the Starter owner now. Everything after this
+  // belongs to the gym the run started with, so sign back in as them.
+  await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' });
+  await page.fill('#email', gym.email);
+  await page.fill('#password', gym.password);
+  await page.click('button[type="submit"]');
+  await page.waitForURL(/\/dashboard/, { timeout: 30_000 });
+  check('the original owner can sign back in', page.url().includes('/dashboard'));
+
   // ------------------------------------------------------------- the CSP ---
+  // ------------------------------------------------------ the activity log ---
+  // Everywhere else in this software claims that platform support "writes a
+  // row the gym owner can see". This is the screen where that is settled.
+  section('The activity log');
+  await page.goto(`${BASE}/settings/audit`, { waitUntil: 'domcontentloaded' });
+  check(
+    'the activity log opens',
+    (await page.getByRole('heading', { name: 'Activity log' }).count()) > 0,
+  );
+
+  const auditText = await page.evaluate(() => document.body.innerText);
+  check(
+    'it records what the gym itself did',
+    /member\.created|Ravi Kulkarni/.test(auditText),
+    auditText.split('\n').slice(0, 6).join(' | '),
+  );
+  check(
+    'and offers the view that matters: what the vendor did',
+    /Only the software company/i.test(auditText),
+  );
+
+  await page.getByRole('link', { name: 'Only the software company' }).click();
+  await page.waitForFunction(
+    () => /Support activity/i.test(document.body.innerText),
+    undefined,
+    { timeout: 20_000 },
+  );
+  const supportText = await page.evaluate(() => document.body.innerText);
+  check(
+    'which says plainly that an empty list means nobody has been in',
+    /empty list means nobody has been in/i.test(supportText),
+  );
+  check(
+    'and nobody has been in this gym',
+    /Nobody from the software company/i.test(supportText),
+    supportText.split('\n').slice(0, 6).join(' | '),
+  );
+
+  // --------------------------------------------------------- the console ---
+  // The vendor's side, in a separate browser context: a platform operator is
+  // made the way an operator makes one — register, then promote. There is no
+  // seeded super admin with a known password to sign in as.
+  section('The platform console');
+
+  const operator = {
+    email: `browser.platform.${stamp}@example.com`,
+    password: gym.password,
+  };
+
+  const operatorContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const admin = await operatorContext.newPage();
+
+  await admin.goto(`${BASE}/register-gym`, { waitUntil: 'domcontentloaded' });
+  await admin.fill('#gymName', `Operator Gym ${stamp}`);
+  await admin.fill('#ownerName', 'Browser Operator');
+  await admin.fill('#email', operator.email);
+  await admin.fill('#phone', `96${String(stamp).slice(-8)}`);
+  await admin.fill('#password', operator.password);
+  await admin.check('input[name="planKey"][value="STARTER"]');
+  const operatorTerms = admin.locator('input[type="checkbox"]:not([name="planKey"])').first();
+  if (await operatorTerms.count()) await operatorTerms.check();
+  await admin.click('button[type="submit"]');
+  await admin.waitForURL(/\/dashboard/, { timeout: 30_000 });
+
+  let promoted = '';
+  try {
+    promoted = execFileSync('pnpm', ['platform:admin', '--email', operator.email], {
+      cwd: new URL('../..', import.meta.url).pathname,
+      encoding: 'utf8',
+    });
+  } catch (error) {
+    promoted = String(error.stdout ?? error.message);
+  }
+  check(
+    'an operator is promoted by the script, not by a seeded password',
+    /is now a platform administrator/.test(promoted),
+    promoted.trim().split('\n').slice(-1)[0],
+  );
+
+  await admin.goto(`${BASE}/admin`, { waitUntil: 'domcontentloaded' });
+  check(
+    'the console opens for them',
+    (await admin.getByRole('heading', { name: 'Platform overview' }).count()) > 0,
+  );
+
+  const consoleText = await admin.evaluate(() => document.body.innerText);
+  check('it shows the money', /MRR/.test(consoleText) && /Collected this month/.test(consoleText));
+  check('and the call list', /Worth a call today/.test(consoleText));
+  check(
+    'with the gym registered at the top of this run on it',
+    consoleText.includes(gym.name),
+    consoleText.split('\n').slice(0, 4).join(' | '),
+  );
+
+  // Into one gym, commercially.
+  await admin.getByRole('link', { name: gym.name }).first().click();
+  await admin.waitForURL(/\/admin\/gyms\//, { timeout: 30_000 });
+  const detailText = await admin.evaluate(() => document.body.innerText);
+
+  check('a gym detail page opens', detailText.includes(gym.name));
+  check('showing what they pay', /Plan/.test(detailText) && /a month/.test(detailText));
+  check('and what they use against it', /Using their plan/.test(detailText));
+  check(
+    'and never a member of theirs',
+    !detailText.includes(member.lastName),
+    detailText.split('\n').filter((l) => l.includes(member.lastName)).join(' | '),
+  );
+  check(
+    'and says so, rather than leaving it to be assumed',
+    /cannot show this gym/i.test(detailText) && /audit log/i.test(detailText),
+  );
+
+  // The levers. Each demands a reason in the same breath as the change.
+  await admin.getByRole('button', { name: 'Extend trial' }).click();
+  await admin.fill('#trial-reason', 'Browser run: owner asked for another week');
+  await admin.getByRole('button', { name: 'Extend trial' }).last().click();
+  await admin.waitForFunction(
+    () => /Trial extended/i.test(document.body.innerText),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('a trial can be extended from the console', true);
+
+  await admin.getByRole('button', { name: 'Agree limits' }).click();
+  await admin.fill('#maxBranches', '6');
+  await admin.fill('#limits-reason', 'Browser run: six sites agreed at this price');
+  await admin.getByRole('button', { name: 'Agree these limits' }).click();
+  await admin.waitForFunction(
+    () => /Limits agreed/i.test(document.body.innerText),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('and a limit agreed with one gym', true);
+
+  // router.refresh() re-renders the server component, which arrives after
+  // the confirmation does — wait for the page itself to catch up.
+  const agreedShown = await admin
+    .waitForFunction(() => /of 6 \(agreed\)/.test(document.body.innerText), undefined, {
+      timeout: 20_000,
+    })
+    .then(() => true)
+    .catch(() => false);
+  const afterLimits = await admin.evaluate(() => document.body.innerText);
+  check(
+    'which the detail page then shows as agreed, not as the plan',
+    agreedShown,
+    afterLimits.split('\n').filter((l) => /agreed|Branches/.test(l)).join(' | '),
+  );
+
+  await operatorContext.close();
+
+  // And now the part the whole boundary exists for: the gym sees it.
+  section('What the gym sees us doing');
+  await page.goto(`${BASE}/settings/audit?view=platform`, { waitUntil: 'domcontentloaded' });
+  const seenByGym = await page.evaluate(() => document.body.innerText);
+
+  check(
+    'the owner can read that their trial was extended',
+    /platform\.trial\.extended/.test(seenByGym),
+    seenByGym.split('\n').slice(0, 8).join(' | '),
+  );
+  check(
+    'and that a limit was agreed, with the reason given',
+    /six sites agreed at this price/i.test(seenByGym),
+  );
+  check(
+    'attributed to the software company, not to a stranger',
+    /Platform support/.test(seenByGym) && /Software company/.test(seenByGym),
+  );
+
   section('Security headers');
   const response = await page.goto(`${BASE}/dashboard`, { waitUntil: 'domcontentloaded' });
   const headers = response.headers();

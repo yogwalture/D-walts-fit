@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { getPlatformStats, listGyms } from '@gym/core';
+import Link from 'next/link';
+import { getPlatformStats, listGyms, gymsNeedingAttention } from '@gym/core';
 import { requireSession } from '@/lib/current-session';
 import { SignOutButton } from '@/components/sign-out-button';
 
@@ -16,13 +17,26 @@ export const metadata: Metadata = { title: 'Platform' };
  * entering that tenant explicitly, which writes an audit row the gym owner
  * can see.
  */
+const REASON_LABEL: Record<string, string> = {
+  trial_ending: 'Trial ending',
+  past_due: 'Unpaid',
+  read_only: 'Read-only',
+};
+
+const REASON_TONE: Record<string, string> = {
+  trial_ending: 'bg-accent-soft text-accent',
+  past_due: 'bg-warning/10 text-warning',
+  read_only: 'bg-danger/10 text-danger',
+};
+
 export default async function PlatformConsolePage() {
   const session = await requireSession('/admin');
   if (!session.user.isPlatformAdmin) notFound();
 
-  const [stats, { rows, total }] = await Promise.all([
+  const [stats, { rows, total }, attention] = await Promise.all([
     getPlatformStats(session.user.id),
     listGyms(session.user.id, { pageSize: 25 }),
+    gymsNeedingAttention(session.user.id, { limit: 25 }),
   ]);
 
   const money = (value: string) =>
@@ -91,6 +105,62 @@ export default async function PlatformConsolePage() {
 
         <section className="card overflow-hidden">
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
+            <div>
+              <h2 className="text-lg font-semibold text-ink">Worth a call today</h2>
+              <p className="mt-0.5 text-sm text-ink-muted">
+                Soonest to lose first. A trial ending tomorrow is still winnable; a gym
+                read-only for a fortnight usually is not.
+              </p>
+            </div>
+            <span className="shrink-0 text-sm text-ink-muted">
+              {attention.length === 0 ? 'Nobody' : `${attention.length} to ring`}
+            </span>
+          </div>
+
+          {attention.length === 0 ? (
+            <p className="px-4 py-10 text-center text-base text-ink-muted">
+              Nothing lapsing and no trial ending this week.
+            </p>
+          ) : (
+            <ul className="divide-y divide-line">
+              {attention.map((item) => (
+                <li key={item.organizationId} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <Link
+                      href={`/admin/gyms/${item.organizationId}`}
+                      className="text-base font-medium text-ink underline-offset-2 hover:underline"
+                    >
+                      {item.name}
+                    </Link>
+                    <p className="text-sm text-ink-muted">
+                      {item.detail} &middot; {item.planName}
+                    </p>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-3">
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${REASON_TONE[item.reason] ?? 'bg-surface-muted text-ink-muted'}`}>
+                      {REASON_LABEL[item.reason] ?? item.reason}
+                    </span>
+                    {item.ownerPhone ? (
+                      <a href={`tel:${item.ownerPhone}`} className="text-sm text-accent hover:underline">
+                        {item.ownerPhone}
+                      </a>
+                    ) : item.ownerEmail ? (
+                      <a href={`mailto:${item.ownerEmail}`} className="text-sm text-accent hover:underline">
+                        {item.ownerEmail}
+                      </a>
+                    ) : (
+                      <span className="text-sm text-ink-subtle">No contact on file</span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="card overflow-hidden">
+          <div className="flex items-center justify-between border-b border-line px-4 py-3">
             <h2 className="text-lg font-semibold text-ink">Gyms</h2>
             <span className="text-sm text-ink-muted">{total} total</span>
           </div>
@@ -119,7 +189,12 @@ export default async function PlatformConsolePage() {
               {rows.map((gym) => (
                 <tr key={gym.id}>
                   <td className="px-4 py-3">
-                    <p className="text-base font-medium text-ink">{gym.name}</p>
+                    <Link
+                      href={`/admin/gyms/${gym.id}`}
+                      className="text-base font-medium text-ink underline-offset-2 hover:underline"
+                    >
+                      {gym.name}
+                    </Link>
                     <p className="text-sm text-ink-muted">{gym.ownerEmail ?? gym.slug}</p>
                   </td>
                   <td className="px-4 py-3 text-base text-ink">{gym.planName ?? '—'}</td>

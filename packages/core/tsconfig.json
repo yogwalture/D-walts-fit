@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@gym/core": ["../core/src/index.ts"],
+      "@gym/db": ["../db/src/index.ts"],
+      "@gym/contracts": ["../contracts/src/index.ts"],
+      "@gym/integrations": ["../integrations/src/index.ts"],
+      "@gym/ui": ["../ui/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -1,7 +1,7 @@
 # Development status
 
-Updated: 18 November 2026
-Phase: **3 — Gym Operations**
+Updated: 19 November 2026
+Phase: **6 — Commercial SaaS**
 
 This file is the single honest record of what works, what does not, and what
 is waiting on someone. A feature is listed as complete only when its critical
@@ -206,6 +206,21 @@ only when real credentials have been used and a real call has succeeded.
 | Our own invoices carry GST | Software sold by an Indian business; the gym needs the tax invoice to claim input credit |
 | The billing run is idempotent | Running it twice cannot invoice a gym twice, and a gateway retry cannot credit one twice |
 | **Platform billing suite — 19 tests** | **Including that every record survives a trial ending and the grace running out** |
+| Super Admin console | MRR, ARR, collections, churn, and every gym — the figures needed to run this as a business rather than as a gym |
+| A call list, not a count | "Three gyms past due" cannot be phoned. Trials ending, invoices unpaid and gyms gone read-only, each with the owner's name and number, soonest-to-lose first |
+| Narrowed in SQL, not after the fact | The list filters and orders in the query before it takes a page, so a gym about to lapse cannot be dropped by whichever rows the planner returned last |
+| A gym's page, commercially | Plan, price, usage against limits, our invoices to them, lifetime value — and no member, payment or message of theirs anywhere in it |
+| Extending a trial | Counted from today when the trial already lapsed, capped at 60 days, and it lifts read-only — a gym evaluating the software has to be able to use it |
+| A limit agreed with one gym | A deal struck with one customer no longer needs a plan tier everybody else can see and buy |
+| Both write into the gym's own audit log | With the reason, which is the part that explains the decision six months later |
+| Platform context is checked in the data layer | `withPlatform` refuses to open for anybody who is not active platform staff, so the route guard is not the only thing standing there |
+| Platform context refuses a gym's tables outright | RLS already answers nothing there; the extension turns that silent empty result — indistinguishable from a gym with no members — into an error naming the call that was meant |
+| Counts come from the job role, deliberately and narrowly | Usage against a plan names nobody; the rule is counts and the account holder's own contact details, nothing else |
+| No seeded super admin | An operator registers normally and promotes themselves once with `pnpm platform:admin`. A known password in the repository is the first thing anybody tries on a new deployment |
+| A gym's own activity log | Who changed what, including us — with a view that shows only what the software company did. Every claim elsewhere that "the owner can see it" is settled on that screen |
+| The log is not a second copy of their data | Stored before/after payloads stay out of the view; the summary names their own member, because "a member was added" tells an owner nothing |
+| Support is named as support | That the vendor acted is the gym's business; which person at the vendor pressed the button is ours |
+| **Platform console suite — 26 tests** | **Including that a gym owner cannot open platform context at all, and that every platform action is readable in the gym's own log** |
 
 ### What the isolation suite actually proves
 
@@ -291,6 +306,11 @@ Recorded because each one says something about where the bugs actually are.
 | The expense service checked permissions that do not exist | Expenses suite | It asked for `finance.expense.create` and `finance.expense.delete`; the registry has `finance.expense.manage`. **A gym owner could not record an expense in their own gym.** Nothing in a typechecker can catch a string that does not match another string, so a test now compares every permission key the code checks against the seeded registry. |
 | Inviting someone left no trace anywhere | Phase 3 browser suite | An invited person has no account until they accept, so the team page showed nothing: **the person who sent an invitation could not tell whether it had gone out, when it expired, or how to take it back.** Pending invitations are now listed with the sender and the expiry, and can be revoked. The invited person's name is stored so the list shows a person rather than a bare email address. |
 | The member profile's Edit button went nowhere | Phase 2 browser suite | Same class of problem; the page was built rather than the button removed, since the service behind it was already written and tested. |
+| `withPlatform` promised in a comment what nothing enforced | Writing the console's gym detail view | Its doc comment said it "does NOT open a gym's operational data". Nothing checked: it returned the plain client, and a stray `tx.member.findMany()` would have been answered — by an empty array, because row-level security denies it silently. So the first version of the detail page reported **every gym as having zero members, zero branches and zero staff**, and looked entirely plausible doing it. The data layer now refuses those models by name, the refusal says which call was meant, and the counts come from the job role deliberately. |
+| The console's call list could silently omit the most urgent gym | Platform console suite | It read every trial and past-due subscription with a `take` and no ordering, then filtered to "ending within seven days" in memory. PostgreSQL returns rows in whatever order suits it, so with more gyms than the page size, **the gyms about to lapse could be exactly the ones dropped** — a sales list that quietly leaves people out is worse than no list, because nobody knows to check. It now narrows and orders in SQL before taking a page. |
+| The console claimed a reach the database does not permit | Platform console suite | `PLATFORM_MODELS` started as a hand-reasoned guess at "platform-owned tables" and included `OrgSetting`, which the generated RLS does not grant platform context. Every owner's phone number came back null, so **the call list had no numbers to call**. The list now mirrors the policies exactly and the contact details are read, one column, through the job role. |
+| `pnpm typecheck` could never have passed | Running it after the console landed | Not one package had a `tsconfig.json`, so every `tsc --noEmit` printed the compiler's help text and exited 1. Turbo stopped at the first failure and the command had presumably been failing since the scaffold. **A check that cannot pass is a check nobody runs** — the real typechecking has been happening incidentally, inside `next build`, which only covers what the web app imports. Each package now has a config and all six pass. |
+| Registering the second gym in the browser suite replaced the first gym's session | Platform console browser run | The Starter-plan gym was registered in a new page in the same browser context, so the session cookie became that gym's. Nothing noticed, because the run ended there. The moment a section was added after it, it was reading the wrong gym's activity log. The original owner is now signed back in explicitly. |
 
 ---
 
@@ -303,12 +323,49 @@ Recorded because each one says something about where the bugs actually are.
 | Column names are camelCase while table names are snake_case | Prisma's default column mapping | Consistent and documented; the RLS generator quotes identifiers correctly |
 | `prisma migrate dev` needs a shadow database | Prisma's drift detection | `shadowDatabaseUrl` on managed providers; `CREATEDB` on the owner role locally |
 | No integration is verified | No real credentials yet, by design | Each will move to "verified" only after a real successful call |
+| Nested relation reads are not caught by the platform guard | Prisma extensions see the top-level model only | Row-level security still empties them, so the data does not leak — the guard just cannot explain why the result is empty. Platform reads select named commercial columns for that reason, and the limitation is stated in the code |
+| Platform-side usage counts come from the `BYPASSRLS` job role | Counting across tenants is legitimately cross-tenant, and the gym's own policies deny it | Narrowly bounded by rule and by code review: counts, and the account holder's own contact details. Never a member, a payment, a message or an attendance row |
+| A platform administrator who is also a gym owner is one account | Somebody will run their own gym on the product they sell | The two sets of powers never mix: platform keys grant nothing inside a tenant, and gym keys grant nothing platform-side. Both suites assert it |
 | WhatsApp has never sent a message | No Meta credentials yet. The plumbing is built and tested against a stubbed provider | A gym's connection is only switched on after Meta answers a real call with its own credentials; until then messages are held, never marked sent |
 | Template approval is recorded, not requested | Submitting a template to Meta needs the WhatsApp Business Management API and an approved app | A gym submits in Meta's dashboard and records the approved name here; the product never claims an approval Meta did not give |
 
 ---
 
 ## Changelog
+
+**19 November 2026 — The console, and a comment that was not a boundary**
+Running this as a business needs a different question answered than running
+a gym: not "how are we doing today" but "who do I ring". A count of three
+gyms past due cannot be phoned, so the console now opens on a call list —
+trials ending, invoices unpaid, gyms gone read-only — each with the owner's
+name and number, soonest-to-lose first, and each gym has a page showing what
+they pay, what they use against their plan and what we have invoiced them.
+Two levers sit on it, because "another week to decide" and "we agreed six
+sites at that price" should not mean asking an engineer: both are capped,
+both demand a reason, and both write that reason into the gym's own audit
+log.
+
+Building the detail view found the real problem. `withPlatform` carried a
+comment saying it "does NOT open a gym's operational data" — and nothing
+enforced it. Row-level security denies those tables to platform context
+silently, by returning nothing, so the first version of the page reported
+**every gym as having zero members, zero branches and zero staff** and
+looked entirely plausible doing it. Three things changed: the data layer now
+refuses a gym's models by name and the error says which call was meant;
+platform context will not open at all for somebody who is not active
+platform staff, so the route guard is no longer the only thing standing
+there; and the counts come from the job role deliberately, under a stated
+rule — counts and the account holder's own contact details, nothing else.
+The same silence had already made the call list useless in a quieter way:
+every owner's phone number was null, because `OrgSetting` is not a table the
+policies grant.
+
+Then the part that makes the whole boundary worth anything: a gym can now
+read its own activity log, with a view showing only what the software
+company did. Every claim in this codebase that support "writes a row the
+owner can see" was, until today, a sentence in a file the owner cannot open.
+948 checks passing: 496 tests, 221 HTTP checks and 231 browser checks.
+
 
 **18 November 2026 — Branches, and an owner locked into one of them**
 The Growth plan is sold on two branches and nothing in the product could

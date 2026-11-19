@@ -28,7 +28,7 @@ project's architecture document.
 | Permission registry | 140 permissions, 7 system roles seeded |
 | Authentication | Argon2id, database sessions, TOTP, lockout, organization switching |
 | Account flows | Password reset, staff invitations, two-factor enrolment, member one-time-code login |
-| Administration | Staff management, the platform console, audited support access |
+| Administration | Staff management, audited support access, and a gym's own activity log — including what the vendor did on their account |
 | Members | Registration with duplicate detection, bulk import from CSV/Excel, search, filters, profile, edit, archive |
 | Memberships | Plans, quoting, selling, renewal, freeze, extension, cancellation with refund |
 | Attendance | QR and search check-in, eligibility rules at the door, audited overrides, peak hours |
@@ -45,8 +45,10 @@ project's architecture document.
 | Member app | Sign in with a code, see your membership and dues, book classes, check yourself in — installable, and it never caches the API |
 | Messaging | WhatsApp Cloud API with per-gym encrypted credentials, approved templates, delivery receipts, STOP honoured on arrival, daily expiry reminders, and a queue that never claims to have sent what it has not |
 | Plans and billing tiers | Chosen at registration, and a feature outside the plan explains itself instead of failing |
-| Web application | Next.js 15 — marketing page, auth, and twenty-six screens of the gym portal, plus the member app |
-| Tests | **883 passing**: 40 isolation, 38 auth and plan locks, 30 account flows, 56 operations, 24 invoices, 42 import, 20 expenses, 20 staff, 21 rota and leave, 20 enquiries, 30 classes, 20 shop, 19 reports, 9 branches, 30 messaging, 18 member portal, 19 platform billing, 13 contracts, 204 HTTP checks, 209 browser checks |
+| The platform console | MRR and churn, a call list of trials ending and gyms lapsing with the owner's number, and a commercial page per gym with two levers: extend a trial, agree a limit outside the plan |
+| The platform boundary | Platform context opens only for active platform staff, refuses a gym's own tables by name, and every action it takes lands in that gym's audit log with its reason |
+| Web application | Next.js 15 — marketing page, auth, and twenty-eight screens of the gym portal, plus the member app and the platform console |
+| Tests | **948 passing**: 40 isolation, 38 auth and plan locks, 30 account flows, 56 operations, 24 invoices, 42 import, 20 expenses, 20 staff, 21 rota and leave, 20 enquiries, 30 classes, 20 shop, 19 reports, 9 branches, 30 messaging, 18 member portal, 19 platform billing, 26 platform console, 13 contracts, 221 HTTP checks, 231 browser checks |
 
 ---
 
@@ -99,9 +101,9 @@ pnpm dev                 # http://localhost:3000
 To run everything:
 
 ```bash
-pnpm vitest run                                   # 470 tests against a real database
-bash tests/e2e/http-smoke.sh                      # 106 checks against a running server
-node tests/e2e/phase2-browser.mjs                 # 93 checks in a real browser
+pnpm vitest run                                   # 496 tests against a real database
+bash tests/e2e/http-smoke.sh                      # 221 checks against a running server
+node tests/e2e/phase2-browser.mjs                 # 231 checks in a real browser
 ```
 
 The browser suite needs Playwright and a server on `http://127.0.0.1:3100`
@@ -139,6 +141,8 @@ through the invitation flow, so no demo credential can reach production.
 | `./tests/e2e/http-smoke.sh` | End-to-end HTTP checks against a running server |
 | `pnpm db:migrate` | Create and apply a migration in development |
 | `pnpm db:reset` | Drop, re-migrate and re-seed |
+| `pnpm platform:admin --email you@example.com` | Promote an existing account to platform administrator |
+| `pnpm platform:admin --list` | Who can open the platform console |
 
 After adding a table, regenerate the policies so it cannot be left unprotected:
 
@@ -149,6 +153,26 @@ node packages/db/scripts/generate-rls.mjs > \
 
 The generator reads `information_schema` rather than a hand-maintained list,
 so a new tenant table is picked up automatically.
+
+### The first platform administrator
+
+There is no seeded super admin. A deployment ships with nobody able to open
+the platform console, because an account with a known password in the
+repository is the first thing anybody tries on a new install.
+
+Register through the ordinary sign-up, then promote that account once, on
+the server, with database access you already have:
+
+```bash
+pnpm platform:admin --email you@example.com
+pnpm platform:admin --list            # who can open the console
+pnpm platform:admin --email old@example.com --revoke
+```
+
+It never creates an account and never sets a password: the person has
+already chosen their own, and nobody — including whoever runs this — has
+seen it. Revoking leaves their own gym access untouched, since platform
+staff and gym staff are separate things and somebody may be both.
 
 ---
 

@@ -151,6 +151,12 @@ const NAVIGATION: NavSection[] = [
         permission: 'org.billing.read',
         built: true,
       },
+      {
+        href: '/settings/audit',
+        label: 'Activity log',
+        permission: 'org.audit.read',
+        built: true,
+      },
       { href: '/settings/security', label: 'Security', built: true },
     ],
   },
