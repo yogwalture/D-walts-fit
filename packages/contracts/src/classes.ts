@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isoDate, isoDateTime, uuid } from './common';
+import { boolish, isoDate, isoDateTime, uuid } from './common';
 
 /**
  * Classes and bookings.
@@ -28,12 +28,12 @@ export const classTypeInput = z.object({
     .trim()
     .regex(/^#[0-9a-fA-F]{6}$/, 'A colour like #16A34A')
     .optional(),
-  requiresBooking: z.coerce.boolean().default(true),
+  requiresBooking: boolish.default(true),
 });
 
 export const updateClassTypeInput = classTypeInput
   .partial()
-  .extend({ isActive: z.coerce.boolean().optional() });
+  .extend({ isActive: boolish.optional() });
 
 export const scheduleClassInput = z.object({
   classTypeId: uuid,
@@ -56,7 +56,7 @@ export const timetableQuery = z.object({
   branchId: uuid.optional(),
   classTypeId: uuid.optional(),
   trainerOrgUserId: uuid.optional(),
-  includeCancelled: z.coerce.boolean().default(false),
+  includeCancelled: boolish.default(false),
 });
 
 export const bookClassInput = z.object({
@@ -66,7 +66,7 @@ export const bookClassInput = z.object({
    * Booking a member whose membership does not cover the class. Deliberate
    * and audited, the same way an override at the door is.
    */
-  allowIneligible: z.coerce.boolean().default(false),
+  allowIneligible: boolish.default(false),
 });
 
 export const cancelBookingInput = z.object({
@@ -76,13 +76,13 @@ export const cancelBookingInput = z.object({
 
 export const classAttendanceInput = z.object({
   bookingId: uuid,
-  attended: z.coerce.boolean(),
+  attended: boolish,
 });
 
 export const cancelClassInput = z.object({
   classId: uuid,
   reason: z.string().trim().min(3, 'Say why').max(200),
-  wholeSeries: z.coerce.boolean().default(false),
+  wholeSeries: boolish.default(false),
 });
 
 export type ClassTypeInput = z.infer<typeof classTypeInput>;

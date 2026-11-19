@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { pageQuery } from '@gym/contracts';
+import { boolish, pageQuery } from '@gym/contracts';
 import { listAudit } from '@gym/core';
 import { route, paged } from '@/lib/handler';
 import { tenantOf } from '@/lib/tenant';
@@ -17,7 +17,7 @@ export const GET = route(
     permission: 'org.audit.read',
     source: 'query',
     schema: pageQuery.extend({
-      platformOnly: z.coerce.boolean().default(false),
+      platformOnly: boolish.default(false),
       action: z.string().trim().max(80).optional(),
       entityType: z.string().trim().max(60).optional(),
     }),

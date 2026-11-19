@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isoDate, uuid } from './common';
+import { boolish, isoDate, uuid } from './common';
 
 /**
  * Staff attendance, the rota and leave.
@@ -59,12 +59,12 @@ export const leaveRequestInput = z.object({
   fromDate: isoDate,
   toDate: isoDate,
   reason: z.string().trim().max(500).optional(),
-  halfDay: z.coerce.boolean().default(false),
+  halfDay: boolish.default(false),
 });
 
 export const leaveDecisionInput = z.object({
   leaveId: uuid,
-  approve: z.coerce.boolean(),
+  approve: boolish,
   note: z.string().trim().max(300).optional(),
 });
 

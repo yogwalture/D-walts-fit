@@ -63,9 +63,12 @@ export default async function BillingPage() {
             This gym is read-only until the subscription is paid.
           </p>
           <p className="mt-1 text-sm text-ink-muted">
-            Every member, invoice and attendance record is still here and can be exported. You
-            cannot register members or take payments until the account is settled — nothing has
-            been deleted, and nothing will be.
+            Every member, invoice and attendance record is still here, and you can{' '}
+            <a href="/settings/export" className="underline underline-offset-2">
+              download all of it
+            </a>{' '}
+            right now. You cannot register members or take payments until the account is
+            settled — nothing has been deleted, and nothing will be.
           </p>
         </div>
       )}
@@ -78,8 +81,12 @@ export default async function BillingPage() {
               : 'Your trial has ended.'}
           </p>
           <p className="mt-1 text-sm text-ink-muted">
-            When it ends, the gym goes read-only rather than being locked: you keep everything and
-            can export it at any time.
+            When it ends, the gym goes read-only rather than being locked: you keep everything
+            and can{' '}
+            <a href="/settings/export" className="underline underline-offset-2">
+              export it
+            </a>{' '}
+            at any time.
           </p>
         </div>
       )}

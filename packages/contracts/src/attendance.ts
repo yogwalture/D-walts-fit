@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isoDate, pageQuery, phone, uuid } from './common';
+import { boolish, isoDate, pageQuery, phone, uuid } from './common';
 
 /**
  * Attendance.
@@ -49,7 +49,7 @@ export const attendanceListQuery = pageQuery.extend({
   toDate: isoDate.optional(),
   branchId: uuid.optional(),
   memberId: uuid.optional(),
-  onlyOverrides: z.coerce.boolean().default(false),
+  onlyOverrides: boolish.default(false),
 });
 
 export const peakHoursQuery = z.object({

@@ -9,6 +9,37 @@ import { z } from 'zod';
 
 export const uuid = z.string().uuid();
 
+/**
+ * A boolean that survives a query string.
+ *
+ * `z.coerce.boolean()` is wrong for anything that can arrive as text,
+ * because it applies JavaScript truthiness: the string `"false"` is
+ * non-empty and therefore `true`. So `?includeCancelled=false` meant
+ * "include cancelled", `?withStats=false` meant "with stats", and
+ * `?platformOnly=false` on the audit log meant "only platform" — the exact
+ * opposite of what the caller wrote, with no error to notice. Every one of
+ * those was live in this codebase until an e2e check returned an empty list
+ * that should have had rows in it.
+ *
+ * This takes a real boolean as-is, understands the spellings a client or a
+ * human actually sends, and refuses anything else rather than guessing.
+ */
+export const boolish = z
+  .union([z.boolean(), z.string()])
+  .transform((value, ctx) => {
+    if (typeof value === 'boolean') return value;
+
+    const text = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(text)) return true;
+    if (['false', '0', 'no', 'off', ''].includes(text)) return false;
+
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Expected true or false',
+    });
+    return z.NEVER;
+  });
+
 /** Indian mobile number, stored as 10 digits without the country code. */
 /**
  * An Indian mobile number, normalised to its ten digits.

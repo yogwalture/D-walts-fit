@@ -5,6 +5,7 @@ import { requireActor } from '@/lib/current-session';
 import { memberContextOf } from '@/lib/tenant';
 import { Badge, Card, rupees } from '@/components/ui';
 import { CheckInPanel } from './check-in';
+import { MyDataButton } from './my-data';
 
 export const metadata: Metadata = { title: 'My gym' };
 export const dynamic = 'force-dynamic';
@@ -148,6 +149,10 @@ export default async function MyPage() {
             ))}
           </ul>
         )}
+      </Card>
+
+      <Card title="Your data">
+        <MyDataButton />
       </Card>
     </div>
   );

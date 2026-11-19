@@ -45,3 +45,4 @@ export * from './comms/templates';
 export * from './comms/service';
 export * from './comms/settings';
 export * from './portal/service';
+export * from './org/export';

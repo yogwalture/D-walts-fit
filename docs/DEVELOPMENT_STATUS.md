@@ -233,6 +233,18 @@ only when real credentials have been used and a real call has succeeded.
 | An online payment gets a receipt number | Allocated on capture, not on ordering, so the GST-relevant series stays gapless; a member who pays by UPI has the same right to a receipt as one who pays in notes |
 | Pending reads as pending | "Your bank has not confirmed that yet" rather than an error page, because a few seconds of pending is a normal state and the money may well have left their account |
 | An unconnected gym says so | The member app tells them to pay at the desk, which is true, rather than offering a button that opens an error |
+| A gym can take all of its data out | 43 CSV files in a ZIP — members, memberships, attendance, invoices, payments, expenses, staff, classes, enquiries, stock, equipment, videos, consents and the activity log. No request to us, no waiting |
+| Every table is accounted for | Each one is either exported or in an exclusions list with a stated reason, and a guard test fails if a new table is in neither. A table added next year cannot go silently missing from every export |
+| Every column is checked against the schema | Prisma throws on an unknown field, so a renamed column would turn one file into a 500 for a gym trying to leave. A test compares every named column to the generated model |
+| Credentials and live tokens are never exported | Sessions, door tokens, WhatsApp and Razorpay secrets are keys rather than records; staff salaries stay behind the permission gate that a bulk CSV would bypass |
+| It still works when a gym has stopped paying | Which is the whole point of the read-only carve-out, and is now tested against permissions resolved exactly as the app resolves them |
+| Streamed, not built in memory | Pages of 1,000 rows, deflated as they go, on a 512MB container with a 120-second request limit. 60,000 rows in about two seconds |
+| The archive is verified by something that did not write it | Python's `zipfile` opens the file and checks its CRCs, in the unit suite and again on a real browser download — a ZIP that Excel refuses is a total, silent failure of an export |
+| CSVs carry a byte order mark | Without it Excel on Windows reads UTF-8 as the system codepage and a Marathi member list arrives as mojibake. Tested with Devanagari, Gurmukhi and Tamil names |
+| A formula in a cell is defused | A member named `=HYPERLINK(…)` is prefixed, so opening the file is not code execution on whoever opens it |
+| Taking an export is audited | A download of a whole member list is worth being able to see in the activity log, with who and when |
+| A member can take their own data | Their details, visits, payments, bookings, assessments and the full health declaration the gym's bulk export deliberately summarises — which is what India's DPDP Act gives them a right to |
+| **Data export suite — 16 tests, plus 4 on the archive itself** | **Including that one gym's export carries no row of another's, and that a member's carries nobody else's** |
 | **Online payment suite — 23 tests** | **Including a correctly signed confirmation for a payment that never succeeded, a payment belonging to another order, and the same webhook arriving twice** |
 | **Platform console suite — 26 tests** | **Including that a gym owner cannot open platform context at all, and that every platform action is readable in the gym's own log** |
 
@@ -324,6 +336,9 @@ Recorded because each one says something about where the bugs actually are.
 | `withPlatform` promised in a comment what nothing enforced | Writing the console's gym detail view | Its doc comment said it "does NOT open a gym's operational data". Nothing checked: it returned the plain client, and a stray `tx.member.findMany()` would have been answered — by an empty array, because row-level security denies it silently. So the first version of the detail page reported **every gym as having zero members, zero branches and zero staff**, and looked entirely plausible doing it. The data layer now refuses those models by name, the refusal says which call was meant, and the counts come from the job role deliberately. |
 | The console's call list could silently omit the most urgent gym | Platform console suite | It read every trial and past-due subscription with a `take` and no ordering, then filtered to "ending within seven days" in memory. PostgreSQL returns rows in whatever order suits it, so with more gyms than the page size, **the gyms about to lapse could be exactly the ones dropped** — a sales list that quietly leaves people out is worse than no list, because nobody knows to check. It now narrows and orders in SQL before taking a page. |
 | The console claimed a reach the database does not permit | Platform console suite | `PLATFORM_MODELS` started as a hand-reasoned guess at "platform-owned tables" and included `OrgSetting`, which the generated RLS does not grant platform context. Every owner's phone number came back null, so **the call list had no numbers to call**. The list now mirrors the policies exactly and the contact details are read, one column, through the job role. |
+| The product promised an export that did not exist | Auditing what `org.export.create` actually did | The permission was seeded, granted to two roles, and given a **special carve-out in the permission engine** so it would survive read-only mode. The subscription page told gyms a lapsed trial means "you keep everything and can export it at any time". The platform console said a suspended gym "can still export everything". Nothing implemented an export. Every one of those sentences was true about the database and false about the product — the same failure as the audit log, found the same way: by checking whether a promise in the interface had anything behind it. |
+| Three query flags meant the opposite of what they said | An e2e check that returned an empty list | `z.coerce.boolean()` applies JavaScript truthiness, so the string `"false"` — which is exactly what a query string carries — came out as `true`. `?platformOnly=false` on the audit log meant *only* platform rows; `?withStats=false` meant with stats; `?includeCancelled=false` included cancelled classes. Nothing errored, the answers were just wrong, and 15 flags across six contract files were built on it. One parser now handles all of them and refuses what it cannot read. |
+| A browser check failed one run in three | Running the suite twice in a row | The branch-move check read the API as soon as the dialog closed, which says the request was sent rather than that the move had landed. It now polls. Second instance of this exact race in two days — the first was the limits panel — so it is a pattern in this suite, not an accident. |
 | `pnpm typecheck` could never have passed | Running it after the console landed | Not one package had a `tsconfig.json`, so every `tsc --noEmit` printed the compiler's help text and exited 1. Turbo stopped at the first failure and the command had presumably been failing since the scaffold. **A check that cannot pass is a check nobody runs** — the real typechecking has been happening incidentally, inside `next build`, which only covers what the web app imports. Each package now has a config and all six pass. |
 | Registering the second gym in the browser suite replaced the first gym's session | Platform console browser run | The Starter-plan gym was registered in a new page in the same browser context, so the session cookie became that gym's. Nothing noticed, because the run ended there. The moment a section was added after it, it was reading the wrong gym's activity log. The original owner is now signed back in explicitly. |
 
@@ -348,6 +363,50 @@ Recorded because each one says something about where the bugs actually are.
 ---
 
 ## Changelog
+
+**19 November 2026 — The export the product had already promised**
+`org.export.create` was seeded, granted to two roles, and carved out of
+read-only mode in the permission engine so a gym that stopped paying could
+still use it. The subscription page told them a lapsed trial means "you keep
+everything and can export it at any time". The platform console said a
+suspended gym "can still export everything". And nothing implemented an
+export. Every one of those sentences was true about the database and false
+about the product — the same shape of failure as the audit log, found the
+same way: by asking whether a promise in the interface had anything behind
+it.
+
+It does now. 43 CSV files in a ZIP, streamed a thousand rows at a time
+because the deploy target gives a request 120 seconds and the container
+512MB; 60,000 rows take about two seconds. Every table is either in the
+export or in an exclusions list with a reason somebody can argue with, and a
+guard test fails if a new table is in neither — so the table added next year
+cannot quietly go missing. Another guard checks every named column against
+the generated schema, because Prisma throws on an unknown field and the
+person who would find that out is a gym owner trying to leave.
+
+The archive is opened by something that did not write it — Python's zipfile,
+in the unit suite and again on a real browser download — because a ZIP that
+Excel refuses is a total and silent failure of the whole feature. The CSVs
+carry a byte order mark, without which Excel on Windows turns a Marathi
+member list into mojibake, and a cell beginning with `=` is defused so
+opening the file is not code execution.
+
+What is deliberately left out is stated on the page rather than discovered:
+credentials and live tokens, because they are keys rather than records;
+staff salaries, because a bulk CSV is the one place that permission gate
+would not hold; and members' medical notes in full, which go to the member in
+their own export instead, since a medical note is theirs before it is the
+gym's. That member export is a button on their own screen, which is what
+India's DPDP Act asks for and what a gym on this software should be able to
+honour without emailing us.
+
+Separately, three query flags meant the opposite of what they said.
+`z.coerce.boolean()` applies JavaScript truthiness, so the string "false" is
+`true` — `?platformOnly=false` on the audit log meant *only* platform rows.
+Fifteen flags across six contract files were built on it. One parser now
+handles all of them and refuses what it cannot read. 1,043 checks passing:
+542 tests, 253 HTTP checks and 248 browser checks.
+
 
 **19 November 2026 — Taking money online, and whose money it is**
 The server half of Razorpay was built and tested in Phase 2; nothing created

@@ -45,11 +45,12 @@ project's architecture document.
 | Member app | Sign in with a code, see your membership and dues, book classes, check yourself in — installable, and it never caches the API |
 | Messaging | WhatsApp Cloud API with per-gym encrypted credentials, approved templates, delivery receipts, STOP honoured on arrival, daily expiry reminders, and a queue that never claims to have sent what it has not |
 | Plans and billing tiers | Chosen at registration, and a feature outside the plan explains itself instead of failing |
+| Your data is yours | A gym downloads everything it holds as 43 spreadsheets in one click — no request, no waiting — and it keeps working when a trial has lapsed. A member downloads their own records from their own screen |
 | Online payments | Each gym connects their own Razorpay account, so a member's fee settles into the gym's bank and never passes through us. A payment exists only after Razorpay confirms it to our server — not when a browser says so |
 | The platform console | MRR and churn, a call list of trials ending and gyms lapsing with the owner's number, and a commercial page per gym with two levers: extend a trial, agree a limit outside the plan |
 | The platform boundary | Platform context opens only for active platform staff, refuses a gym's own tables by name, and every action it takes lands in that gym's audit log with its reason |
 | Web application | Next.js 15 — marketing page, auth, and twenty-eight screens of the gym portal, plus the member app and the platform console |
-| Tests | **991 passing**: 40 isolation, 38 auth and plan locks, 30 account flows, 56 operations, 25 invoices, 42 import, 20 expenses, 20 staff, 21 rota and leave, 20 enquiries, 30 classes, 20 shop, 19 reports, 9 branches, 30 messaging, 18 member portal, 19 platform billing, 26 platform console, 23 online payments, 13 contracts, 234 HTTP checks, 238 browser checks |
+| Tests | **1,043 passing**: 40 isolation, 38 auth and plan locks, 30 account flows, 56 operations, 25 invoices, 42 import, 20 expenses, 20 staff, 21 rota and leave, 20 enquiries, 30 classes, 20 shop, 19 reports, 9 branches, 30 messaging, 18 member portal, 19 platform billing, 26 platform console, 23 online payments, 16 data export, 4 archive, 14 contracts, 253 HTTP checks, 248 browser checks |
 
 ---
 
@@ -102,9 +103,9 @@ pnpm dev                 # http://localhost:3000
 To run everything:
 
 ```bash
-pnpm vitest run                                   # 519 tests against a real database
-bash tests/e2e/http-smoke.sh                      # 234 checks against a running server
-node tests/e2e/phase2-browser.mjs                 # 238 checks in a real browser
+pnpm vitest run                                   # 542 tests against a real database
+bash tests/e2e/http-smoke.sh                      # 253 checks against a running server
+node tests/e2e/phase2-browser.mjs                 # 248 checks in a real browser
 ```
 
 The browser suite needs Playwright and a server on `http://127.0.0.1:3100`

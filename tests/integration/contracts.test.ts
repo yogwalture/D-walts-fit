@@ -24,6 +24,8 @@ import {
   sellMembershipInput,
   money,
   phone,
+  boolish,
+  timetableQuery,
 } from '@gym/contracts';
 
 const schemaEnum = (name: string): string[] => {
@@ -146,6 +148,36 @@ describe('input coercion', () => {
     expect(phone.parse('919876543210')).toBe('9876543210');
     expect(phone.parse('+91 91129 07620')).toBe('9112907620');
     expect(phone.parse('09112907620')).toBe('9112907620');
+  });
+
+  /**
+   * A query flag that means the opposite of what it says.
+   *
+   * `z.coerce.boolean()` applies JavaScript truthiness, so the string
+   * "false" — which is what a query string carries — came out as `true`.
+   * Three live flags were inverted by it: the audit log's `platformOnly`,
+   * the gym list's `withStats`, and the class list's `includeCancelled`.
+   * Nothing errored; the answers were just wrong.
+   */
+  it('reads a boolean flag the way a query string writes it', () => {
+    expect(boolish.parse('false')).toBe(false);
+    expect(boolish.parse('true')).toBe(true);
+    expect(boolish.parse('0')).toBe(false);
+    expect(boolish.parse('1')).toBe(true);
+    expect(boolish.parse('no')).toBe(false);
+    expect(boolish.parse('')).toBe(false);
+    // A real boolean from a JSON body still works.
+    expect(boolish.parse(false)).toBe(false);
+    expect(boolish.parse(true)).toBe(true);
+    // And nonsense is refused rather than guessed at.
+    expect(() => boolish.parse('maybe')).toThrow();
+  });
+
+  it('refuses a boolean flag nothing can mean', () => {
+    const schema = timetableQuery;
+    expect(() => schema.parse({ includeCancelled: 'perhaps' })).toThrow();
+    // The one that was actually broken, end to end through a real schema.
+    expect(schema.parse({ includeCancelled: 'false' }).includeCancelled).toBe(false);
   });
 
   it('accepts money as a string or a number and stores two decimals', () => {

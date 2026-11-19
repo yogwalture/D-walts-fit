@@ -1465,14 +1465,26 @@ try {
     { timeout: 20_000 },
   );
 
+  // Polled rather than read once. The dialog closing says the request was
+  // sent, not that the move has landed — and reading immediately after made
+  // this check fail about one run in three.
   const moved = await page.evaluate(async () => {
-    const r = await fetch('/api/v1/memberships/subscriptions?status=all&pageSize=50');
-    const body = await r.json();
-    const rows = body.data ?? [];
-    return {
-      atOther: rows.filter((s) => s.branchName === 'Garkheda').length,
-      offered: rows.filter((s) => s.transferAllowed).length,
+    const read = async () => {
+      const r = await fetch('/api/v1/memberships/subscriptions?status=all&pageSize=50');
+      const body = await r.json();
+      const rows = body.data ?? [];
+      return {
+        atOther: rows.filter((s) => s.branchName === 'Garkheda').length,
+        offered: rows.filter((s) => s.transferAllowed).length,
+      };
     };
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const result = await read();
+      if (result.atOther >= 1) return result;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    return read();
   });
   check('the membership is now at the other branch', moved.atOther >= 1, JSON.stringify(moved));
   check(
@@ -1882,6 +1894,73 @@ try {
   check('the original owner can sign back in', page.url().includes('/dashboard'));
 
   // ------------------------------------------------------------- the CSP ---
+  // ------------------------------------------------------------- data export ---
+  // The product tells a gym on several screens that they can take everything
+  // with them. This is the click that has to honour it, in a real browser,
+  // ending in a file on disk that opens.
+  section('Data export');
+  await page.goto(`${BASE}/settings/export`, { waitUntil: 'domcontentloaded' });
+  check(
+    'the export page opens',
+    (await page.getByRole('heading', { name: 'Export your data' }).count()) > 0,
+  );
+
+  const exportText = await page.evaluate(() => document.body.innerText);
+  check('it counts what is in the export', /rows across \d+ files/i.test(exportText));
+  check('names the member file and what it holds', /members\.csv/.test(exportText));
+  check(
+    'states what is left out rather than leaving it to be discovered',
+    /What is not in it/i.test(exportText) && /medical notes in full/i.test(exportText),
+  );
+  check('and says the download is recorded', /recorded in your activity log/i.test(exportText));
+
+  // The real download. Playwright's download event is what proves the
+  // browser treated it as a file rather than rendering bytes into the page.
+  const download = await Promise.all([
+    page.waitForEvent('download', { timeout: 60_000 }),
+    page.getByRole('button', { name: 'Download everything' }).click(),
+  ]).then(([event]) => event);
+
+  const suggested = download.suggestedFilename();
+  check(
+    'the browser downloads it as a named zip',
+    /\.zip$/.test(suggested) && /export-\d{4}-\d{2}-\d{2}/.test(suggested),
+    suggested,
+  );
+
+  const savedTo = `/tmp/browser-export-${stamp}.zip`;
+  await download.saveAs(savedTo);
+
+  const archive = (() => {
+    try {
+      return JSON.parse(
+        execFileSync('python3', ['-I', 'tests/support/inspect-zip.py', savedTo], {
+          encoding: 'utf8',
+          maxBuffer: 8 * 1024 * 1024,
+        }),
+      );
+    } catch (error) {
+      return { ok: false, names: [], contents: {}, error: String(error) };
+    }
+  })();
+
+  check('the file on disk opens as a valid archive', archive.ok === true, archive.error ?? '');
+  check(
+    'and holds the gym’s own records',
+    archive.names.includes('members.csv') && archive.names.includes('README.txt'),
+    archive.names.slice(0, 6).join(', '),
+  );
+  check(
+    'with the member registered at the start of this run in it',
+    (archive.contents['members.csv'] ?? '').includes(member.lastName),
+    (archive.contents['members.csv'] ?? '').slice(0, 120),
+  );
+  check(
+    'and never a credential',
+    !archive.names.some((name) => /gateway|whatsapp|session|token/i.test(name)),
+    archive.names.join(', '),
+  );
+
   // -------------------------------------------------------- online payments ---
   // No Razorpay credentials exist in this environment, so what a browser can
   // prove here is the honest degradation — and that the member app says

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { money, uuid } from './common';
+import { boolish, money, uuid } from './common';
 import { counterPaymentMethod } from './finance';
 
 /**
@@ -38,13 +38,13 @@ export const productInput = z.object({
 export const updateProductInput = productInput
   .partial()
   .omit({ openingStock: true })
-  .extend({ isActive: z.coerce.boolean().optional() });
+  .extend({ isActive: boolish.optional() });
 
 export const productListQuery = z.object({
   search: z.string().trim().max(80).optional(),
   category: z.string().trim().max(60).optional(),
-  lowOnly: z.coerce.boolean().default(false),
-  includeInactive: z.coerce.boolean().default(false),
+  lowOnly: boolish.default(false),
+  includeInactive: boolish.default(false),
 });
 
 export const stockMovementInput = z.object({

@@ -1035,6 +1035,56 @@ check "every screen in the sidebar loads with no data" "0" "$screen_failures"
 
 rm -f "$JAR4"
 
+# ------------------------------------------------------------- data export ---
+#
+# The product tells gyms, on several screens, that they can take everything
+# with them. These checks are that the claim is honoured by a real download
+# through the real request path, archive and all.
+printf '\ndata export\n'
+
+body=$(curl -s -b "$JAR" "$BASE/api/v1/org/export")
+has "the manifest says what is in the export" "$body" '"totalRows"'
+has "and describes each file in words"        "$body" '"describes"'
+has "including the members file"              "$body" '"members"'
+has "and the activity log"                   "$body" '"activity-log"'
+hasnt "and never a credentials table"        "$body" "paymentGatewaySetting"
+
+code=$(curl -s -b "$JAR" -o /tmp/e2e.exportpage -w '%{http_code}' "$BASE/settings/export")
+check "the export page loads" "200" "$code"
+has "it says what is left out, rather than leaving it to be found" \
+  "$(cat /tmp/e2e.exportpage)" "What is not in it"
+has "and that taking one is recorded" "$(cat /tmp/e2e.exportpage)" "activity log"
+
+# The real download, through the real route.
+code=$(curl -s -b "$JAR" -X POST -o /tmp/e2e.export.zip -w '%{http_code}' \
+  -D /tmp/e2e.export.headers "$BASE/api/v1/org/export")
+check "the export downloads" "200" "$code"
+
+headers=$(tr 'A-Z' 'a-z' < /tmp/e2e.export.headers)
+has "as a zip attachment"       "$headers" "content-type: application/zip"
+has "with a findable filename"  "$headers" 'filename="'
+has "and is never cached"       "$headers" "cache-control: no-store, private"
+
+if python3 -c "import sys, zipfile; z = zipfile.ZipFile('/tmp/e2e.export.zip'); sys.exit(0 if z.testzip() is None else 1)" 2>/dev/null; then
+  ok "the archive opens and passes its CRC checks"
+else
+  bad "the archive opens and passes its CRC checks" "a valid zip" "unreadable"
+fi
+
+names=$(python3 -c "import zipfile; print(' '.join(zipfile.ZipFile('/tmp/e2e.export.zip').namelist()))" 2>/dev/null)
+has "it contains the members file"  "$names" "members.csv"
+has "and the payments file"         "$names" "payments.csv"
+has "and a README"                  "$names" "README.txt"
+
+# The import earlier in this run created "Smoke Import" from a CSV; the
+# export splits a name into its columns, so it comes back as two cells.
+imported=$(python3 -c "import zipfile; print(zipfile.ZipFile('/tmp/e2e.export.zip').read('members.csv').decode('utf-8-sig'))" 2>/dev/null)
+has "and the member imported earlier is in it" "$imported" '"Smoke","Import"'
+has "with the phone number they were imported with" "$imported" "9846000001"
+
+body=$(curl -s -b "$JAR" "$BASE/api/v1/org/audit?pageSize=20&platformOnly=false")
+has "taking an export is recorded in the activity log" "$body" "org.export.created"
+
 # -------------------------------------------------------- online payments ---
 #
 # No Razorpay credentials exist, so what is checked here is the honest

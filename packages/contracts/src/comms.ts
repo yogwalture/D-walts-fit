@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isoDateTime, uuid } from './common';
+import { boolish, isoDateTime, uuid } from './common';
 
 export const channel = z.enum(['WHATSAPP', 'PUSH', 'EMAIL', 'SMS', 'IN_APP']);
 export const messageCategory = z.enum(['UTILITY', 'MARKETING', 'AUTHENTICATION', 'SERVICE']);
@@ -25,7 +25,7 @@ export const updateTemplateInput = z.object({
   providerTemplateName: z.string().trim().max(120).nullable().optional(),
   approvalStatus: approvalStatus.optional(),
   approvalNote: z.string().trim().max(300).nullable().optional(),
-  isActive: z.coerce.boolean().optional(),
+  isActive: boolish.optional(),
 });
 
 export const audienceFilter = z.object({
@@ -56,7 +56,7 @@ export const preferenceInput = z.object({
   subjectId: uuid,
   channel: channel.default('WHATSAPP'),
   category: messageCategory.default('MARKETING'),
-  optedIn: z.coerce.boolean(),
+  optedIn: boolish,
   source: z.string().trim().max(120).optional(),
 });
 

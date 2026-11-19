@@ -163,6 +163,12 @@ const NAVIGATION: NavSection[] = [
         permission: 'org.audit.read',
         built: true,
       },
+      {
+        href: '/settings/export',
+        label: 'Export data',
+        permission: 'org.export.create',
+        built: true,
+      },
       { href: '/settings/security', label: 'Security', built: true },
     ],
   },

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { pageQuery, setGymStatusInput } from '@gym/contracts';
+import { boolish, pageQuery, setGymStatusInput } from '@gym/contracts';
 import { getPlatformStats, listGyms, setGymStatus } from '@gym/core';
 import { route, paged } from '@/lib/handler';
 
@@ -12,7 +12,7 @@ export const GET = route(
     source: 'query',
     schema: pageQuery.extend({
       status: z.enum(['TRIAL', 'ACTIVE', 'PAST_DUE', 'SUSPENDED', 'CANCELLED', 'EXPIRED']).optional(),
-      withStats: z.coerce.boolean().default(false),
+      withStats: boolish.default(false),
     }),
   },
   async ({ input, actor }) => {
