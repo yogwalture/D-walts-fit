@@ -3,6 +3,7 @@ import { AppError } from '../errors';
 import { generateOtp } from './password';
 import { createSession, type CreatedSession } from './session';
 import { consumeToken, issueToken, recordFailedAttempt } from './tokens';
+import { throttle, THROTTLES } from '../shared/throttle';
 
 /**
  * Member login by one-time code.
@@ -40,6 +41,12 @@ export async function requestMemberOtp(input: {
   ipAddress?: string;
 }): Promise<OtpRequestResult> {
   const db = getJobsClient();
+
+  // Per address, before the per-number cooldown below. That one stops
+  // somebody pestering one member; this stops a script walking a list of
+  // numbers, where every request that finds a real member costs the gym a
+  // WhatsApp message.
+  await throttle(db, { ...THROTTLES.memberCodeRequest, key: input.ipAddress });
 
   const organization = await db.organization.findUnique({
     where: { slug: input.organizationSlug },

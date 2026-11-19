@@ -2,6 +2,7 @@ import { AppError } from '../errors';
 import { assessPassword, hashPassword, verifyPassword } from './password';
 import { revokeAllSessionsForUser } from './session';
 import { consumeToken, issueToken } from './tokens';
+import { throttle, THROTTLES } from '../shared/throttle';
 
 /**
  * Password reset.
@@ -30,7 +31,12 @@ export async function requestPasswordReset(
   db: any,
   input: ResetRequest,
 ): Promise<ResetRequestResult> {
-  // Throttle by address so the form cannot be used to flood someone's inbox.
+  // Per connection first: the check below limits requests for one email
+  // address, which does nothing against a script iterating over addresses
+  // to send mail in our name.
+  await throttle(db, { ...THROTTLES.passwordReset, key: input.ipAddress });
+
+  // Then by email address, so the form cannot be used to flood one inbox.
   const recent = await db.verificationToken.count({
     where: {
       email: input.email,

@@ -124,9 +124,35 @@ is looked up by `tokenHash` *before* any tenant is known, so a tenant
 predicate cannot apply without breaking login. The compensating controls are
 that the lookup key is a SHA-256 hash of a 32-byte random token, the row is
 revocable server-side, and no application code queries the table by anything
-else. This is the one place in the system where isolation rests on three
-layers instead of four, and it is recorded here so nobody discovers it by
-surprise.
+else. This is one of three places in the system where isolation rests on
+three layers instead of four, and it is recorded here so nobody discovers it
+by surprise.
+
+**`login_attempts` and `throttle_hits` are outside RLS for the same reason.**
+Both are consulted before any tenant exists — the first on the login path, by
+email and by address, and the second on registration, password reset and
+member sign-in, all of which are public endpoints. Neither carries tenant
+data: an email address with an outcome and a timestamp, and a bucket name
+with an address and a timestamp. Both are swept by the daily housekeeping
+job, so neither accumulates a history of who tried to sign in from where.
+
+**The address those limits count against is read from the right of
+`X-Forwarded-For`.** A proxy appends the address it received the request
+from, so with one proxy in front the last entry is the real client and
+anything the client put in the header itself is pushed left and ignored.
+Reading the *first* entry — the obvious reading, and what this code did until
+Phase 9 — lets a caller choose their own throttle key, which reduces every
+rate limit to decoration. The number of proxies is set by
+`TRUSTED_PROXY_HOPS`, and getting it wrong is harmful in both directions:
+too high and a caller picks their own key, too low and every visitor shares
+one allowance.
+
+**Volumetric attacks are not handled here.** A flood from a thousand
+addresses is an edge problem; a database-backed counter cannot absorb one and
+pretending otherwise would be worse than saying so. The per-address limits
+stop the single script hammering one endpoint, which is the realistic abuse
+of a self-serve signup form. Anything beyond that belongs at Cloudflare or
+whatever sits in front.
 
 ---
 

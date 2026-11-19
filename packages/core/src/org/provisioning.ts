@@ -4,6 +4,7 @@ import { AppError } from '../errors';
 import { assessPassword, hashPassword } from '../auth/password';
 import { createSession, type CreatedSession } from '../auth/session';
 import { writeAudit } from '../audit/log';
+import { throttle, THROTTLES } from '../shared/throttle';
 
 /**
  * Tenant provisioning.
@@ -59,6 +60,12 @@ export async function registerGym(
   input: RegisterGymInput & { ipAddress?: string; userAgent?: string },
 ): Promise<RegisterGymResult> {
   const db = getJobsClient();
+
+  // Before anything is created. Registration is public and makes a tenant
+  // with a dozen rows in it, so without a limit one script fills the
+  // database on a shared host — and the first anybody would know is the
+  // disk filling up.
+  await throttle(db, { ...THROTTLES.registration, key: input.ipAddress });
 
   const problems = assessPassword(input.password, [input.ownerName, input.email, input.gymName]);
   if (problems.length > 0) {

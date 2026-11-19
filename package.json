@@ -20,7 +20,12 @@
     "db:migrate:deploy": "pnpm --filter @gym/db migrate:deploy",
     "db:seed": "pnpm --filter @gym/db seed",
     "db:reset": "pnpm --filter @gym/db reset",
-    "platform:admin": "pnpm --filter @gym/db platform:admin"
+    "platform:admin": "pnpm --filter @gym/db platform:admin",
+    "scan:secrets": "node scripts/scan-secrets.mjs",
+    "scan:secrets:history": "node scripts/scan-secrets.mjs --history",
+    "verify": "pnpm scan:secrets && pnpm typecheck && pnpm lint && pnpm test",
+    "backup": "node scripts/backup.mjs",
+    "backup:verify": "node scripts/backup.mjs --verify"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

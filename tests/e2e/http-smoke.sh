@@ -16,6 +16,16 @@ STAMP="$(date +%s)$RANDOM"
 EMAIL="e2e.${STAMP}@example.com"
 PASSWORD="correct horse battery staple 47"
 
+# A forwarded address unique to this run, presented the way a proxy presents
+# one: the client's own claim first (which must be ignored), the proxy's view
+# of the client last. Without this the registration throttle added in Phase 9
+# would carry over between runs, and the second run of the day would fail at
+# its very first request.
+RUN_IP="198.51.100.$(( (STAMP % 200) + 20 ))"
+FWD="x-forwarded-for: 10.0.0.1, ${RUN_IP}"
+FLOOD_IP="198.51.100.$(( (STAMP % 200) + 230 ))"
+FLOOD_FWD="x-forwarded-for: 10.0.0.1, ${FLOOD_IP}"
+
 pass=0
 fail=0
 
@@ -64,7 +74,7 @@ has "an API route answers 401 JSON, not an HTML login page" "$body" "UNAUTHENTIC
 printf '\nregistration\n'
 
 body=$(curl -s -c "$JAR" -X POST "$BASE/api/v1/auth/register" \
-  -H 'content-type: application/json' \
+  -H 'content-type: application/json' -H "$FWD" \
   -d "{\"gymName\":\"E2E Fitness $STAMP\",\"ownerName\":\"E2E Owner\",\"email\":\"$EMAIL\",
        \"phone\":\"9876512345\",\"password\":\"$PASSWORD\",\"city\":\"Chhatrapati Sambhajinagar\",
        \"planKey\":\"GROWTH\",\"acceptedTerms\":true}")
@@ -75,13 +85,13 @@ grep -q "gym_session" "$JAR" && ok "a session cookie is set" || bad "a session c
 grep -q "HttpOnly" "$JAR" && ok "the cookie is HttpOnly" || bad "the cookie is HttpOnly" "HttpOnly" "not set"
 
 body=$(curl -s -X POST "$BASE/api/v1/auth/register" \
-  -H 'content-type: application/json' \
+  -H 'content-type: application/json' -H "$FWD" \
   -d "{\"gymName\":\"Weak\",\"ownerName\":\"Weak\",\"email\":\"weak.$STAMP@example.com\",
        \"phone\":\"9876512346\",\"password\":\"short\",\"acceptedTerms\":true}")
 has "a weak password is rejected with field detail" "$body" "VALIDATION_FAILED"
 
 body=$(curl -s -X POST "$BASE/api/v1/auth/register" \
-  -H 'content-type: application/json' \
+  -H 'content-type: application/json' -H "$FWD" \
   -d "{\"gymName\":\"Dup\",\"ownerName\":\"Dup\",\"email\":\"$EMAIL\",
        \"phone\":\"9876512347\",\"password\":\"$PASSWORD\",\"acceptedTerms\":true}")
 has "a duplicate email address is refused" "$body" "already exists"
@@ -908,7 +918,7 @@ printf '\nthe plan boundary\n'
 
 JAR3="$(mktemp)"
 curl -s -c "$JAR3" -o /dev/null -X POST "$BASE/api/v1/auth/register" \
-  -H 'content-type: application/json' \
+  -H 'content-type: application/json' -H "$FWD" \
   -d "{\"gymName\":\"Starter Gym $STAMP\",\"ownerName\":\"Starter Owner\",
        \"email\":\"starter.$STAMP@example.com\",\"phone\":\"9876500022\",
        \"password\":\"$PASSWORD\",\"planKey\":\"STARTER\",\"acceptedTerms\":true}"
@@ -1012,7 +1022,7 @@ printf '\nevery screen, on a gym with no data\n'
 
 JAR4="$(mktemp)"
 curl -s -c "$JAR4" -o /dev/null -X POST "$BASE/api/v1/auth/register" \
-  -H 'content-type: application/json' \
+  -H 'content-type: application/json' -H "$FWD" \
   -d "{\"gymName\":\"Empty Gym $STAMP\",\"ownerName\":\"Empty Owner\",
        \"email\":\"empty.$STAMP@example.com\",\"phone\":\"9876500099\",
        \"password\":\"$PASSWORD\",\"planKey\":\"ENTERPRISE\",\"acceptedTerms\":true}"
@@ -1145,7 +1155,7 @@ PEMAIL="e2e.platform.${STAMP}@example.com"
 # Platform staff are made the way an operator makes them: register normally,
 # then promote. There is no seeded super admin with a known password.
 body=$(curl -s -X POST "$BASE/api/v1/auth/register" \
-  -H 'content-type: application/json' \
+  -H 'content-type: application/json' -H "$FWD" \
   -d "{\"gymName\":\"E2E Platform $STAMP\",\"ownerName\":\"E2E Platform\",\"email\":\"$PEMAIL\",
        \"phone\":\"9876512348\",\"password\":\"$PASSWORD\",\"planKey\":\"GROWTH\",
        \"acceptedTerms\":true}")
@@ -1232,6 +1242,67 @@ body=$(curl -s -b "$PJAR" "$BASE/api/v1/session")
 hasnt "and hold no gym permission over anyone else's gym" "$body" "\"organizationId\":\"$ORG\""
 
 rm -f "$PJAR" /tmp/e2e.admin
+
+# ---------------------------------------------------------------- throttling ---
+#
+# Registration is public and creates a tenant with a dozen rows in it. Until
+# Phase 9 nothing limited it at all.
+printf '\nthrottling and housekeeping\n'
+
+throttled=""
+for attempt in $(seq 1 12); do
+  response=$(curl -s -X POST "$BASE/api/v1/auth/register" \
+    -H 'content-type: application/json' -H "$FLOOD_FWD" \
+    -d "{\"gymName\":\"Flood $STAMP $attempt\",\"ownerName\":\"Flood\",
+         \"email\":\"flood.$STAMP.$attempt@example.com\",
+         \"phone\":\"98765$(printf '%05d' $attempt)\",\"password\":\"$PASSWORD\",
+         \"planKey\":\"STARTER\",\"acceptedTerms\":true}")
+  case "$response" in *RATE_LIMITED*) throttled="yes"; break;; esac
+done
+
+if [ -n "$throttled" ]; then
+  ok "a flood of registrations from one connection is refused"
+else
+  bad "a flood of registrations from one connection is refused" "RATE_LIMITED" "all allowed"
+fi
+
+body=$(curl -s -X POST "$BASE/api/v1/auth/register" \
+  -H 'content-type: application/json' -H "$FLOOD_FWD" \
+  -d "{\"gymName\":\"Flood again\",\"ownerName\":\"Flood\",
+       \"email\":\"flood.again.$STAMP@example.com\",\"phone\":\"9876599999\",
+       \"password\":\"$PASSWORD\",\"planKey\":\"STARTER\",\"acceptedTerms\":true}")
+has "and says something a real gym owner could act on" "$body" "get in touch"
+hasnt "without naming the limit for somebody to tune against" "$body" "10 requests"
+
+# The limit is per key, so the gym this run registered is unaffected by the
+# flood above — one abuser must not close the door on a whole street.
+body=$(curl -s -b "$JAR" "$BASE/api/v1/session")
+has "and leaves this run's own gym working" "$body" "$EMAIL"
+
+# A client cannot choose its own throttle key. The leading entry of
+# X-Forwarded-For is whatever the client sent; the address that counts is the
+# one the proxy appended, on the right.
+body=$(curl -s -X POST "$BASE/api/v1/auth/register" \
+  -H 'content-type: application/json' \
+  -H "x-forwarded-for: 203.0.113.250, ${FLOOD_IP}" \
+  -d "{\"gymName\":\"Spoofed\",\"ownerName\":\"Spoof\",
+       \"email\":\"spoof.$STAMP@example.com\",\"phone\":\"9876588888\",
+       \"password\":\"$PASSWORD\",\"planKey\":\"STARTER\",\"acceptedTerms\":true}")
+has "and cannot be dodged by prepending an address to the header" "$body" "RATE_LIMITED"
+
+# The housekeeping cron, which exists because purgeExpiredTokens was written
+# months ago with a comment saying a daily job ran it, and no such job did.
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/cron/housekeeping")
+check "the housekeeping job is closed without the cron secret" "401" "$code"
+
+if [ -n "${CRON_SECRET:-}" ]; then
+  body=$(curl -s -H "authorization: Bearer $CRON_SECRET" "$BASE/api/cron/housekeeping")
+  has "and reports what it would clear" "$body" '"expiredTokens"'
+  body=$(curl -s -X POST -H "authorization: Bearer $CRON_SECRET" "$BASE/api/cron/housekeeping")
+  has "and clears it when asked" "$body" '"moreToDo"'
+else
+  printf '  - housekeeping run skipped (set CRON_SECRET to cover it)\n'
+fi
 
 # ----------------------------------------------------------------- logout ---
 printf '\nlogout\n'

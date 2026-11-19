@@ -44,10 +44,55 @@ interface RouteOptions<TInput> {
   source?: 'body' | 'query';
 }
 
+/**
+ * How many proxies sit in front of this app.
+ *
+ * One by default, because in production there always is at least one — the
+ * host's own. Set it to the real number: if it is too low, the address used
+ * for throttling is a proxy's and every visitor shares one allowance; if it
+ * is too high, a client can choose its own address and the throttle is
+ * decoration.
+ */
+const TRUSTED_PROXY_HOPS = Number(process.env.TRUSTED_PROXY_HOPS ?? '1');
+
+/**
+ * The address to hold a request against.
+ *
+ * Read from the RIGHT of `X-Forwarded-For`, not the left. A proxy appends
+ * the address it received the request from, so with one proxy in front the
+ * last entry is the real client — and anything the client put in the header
+ * itself is pushed left, where it is ignored. Taking the first entry, which
+ * is the obvious reading and what this did until now, means **anyone can
+ * choose their own throttle key** by sending the header: the registration
+ * limit, the login limit and the OTP limit all become decoration.
+ *
+ * `X-Real-IP` is the fallback: a single value set by the proxy, which cannot
+ * carry a list for anybody to hide in.
+ */
 function clientIp(request: Request): string | undefined {
   const forwarded = request.headers.get('x-forwarded-for');
-  if (forwarded) return forwarded.split(',')[0]!.trim();
-  return request.headers.get('x-real-ip') ?? undefined;
+
+  if (forwarded) {
+    const hops = forwarded
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    // Counting from the right: one trusted proxy means the last entry.
+    const index = hops.length - Math.max(1, TRUSTED_PROXY_HOPS);
+    const candidate = hops[index];
+    if (candidate) return candidate;
+
+    // Fewer entries than configured hops. Something is misconfigured, and
+    // guessing would pick whatever the client sent — so prefer the header
+    // the proxy sets on its own, and only then the leftmost value.
+    const real = request.headers.get('x-real-ip');
+    if (real) return real.trim();
+
+    return hops[0];
+  }
+
+  return request.headers.get('x-real-ip')?.trim() ?? undefined;
 }
 
 /**

@@ -137,12 +137,64 @@ a renewal reminder that never sent is lost revenue nobody notices for a month.
 
 ## Backups
 
-The managed provider's point-in-time recovery is the first line. The
-`logical-backup` job dumps nightly to object storage **in a separate account**,
-because a backup inside the thing you are backing up is not a backup.
+The managed provider's point-in-time recovery is the first line. On top of
+that, take a logical dump nightly to object storage **in a separate
+account**, because a backup inside the thing you are backing up is not a
+backup.
 
-Test a restore into a clean database before go-live, and once a quarter after.
-An untested backup is a hope.
+### `pg_dump` will fail if you run it the obvious way
+
+Every tenant table here has `FORCE ROW LEVEL SECURITY`, which applies to the
+table's owner as well — that is what FORCE means. During a dump no
+organization is in context, so `current_org_id()` is NULL, the policy denies,
+and pg_dump stops with:
+
+```
+pg_dump: error: query failed: ERROR:  query would be affected by
+row-level security policy for table "attendance"
+```
+
+It does **not** quietly write a dump with the rows missing, which is the one
+mercy in this. But a nightly job set up with the owner credentials — the
+obvious thing to do — fails every night, and if nobody reads the cron mail
+you find out on the day you need it.
+
+So: **dump as a role with `BYPASSRLS`, restore as the owner.** `gym_jobs`
+already has BYPASSRLS, for the cron work. The owner is needed for a restore
+because it recreates tables, policies and grants, which BYPASSRLS does not
+permit. Two roles, two jobs, and neither can do the other's.
+
+### Take one, and prove it
+
+```bash
+# A backup, nothing else.
+pnpm backup
+
+# A backup, restored into a throwaway database and checked.
+pnpm backup:verify
+```
+
+`--verify` is what earns the word backup. It restores the dump into a scratch
+database, compares the row counts table by table, and — the part a plain "did
+it restore" check misses — confirms that row-level security came back
+**enabled and forced**, with its policies, on every table it was on. A
+restore that loses RLS comes back up with every gym able to read every other
+gym's data, and it would look entirely healthy.
+
+It never writes to the database it dumped, and it drops the scratch database
+afterwards.
+
+Run it before go-live and once a quarter after. Keep the output: "53
+populated tables restored with their rows, and row-level security came back
+enabled and forced on 82 tables with 82 policies" is the sentence you want
+in front of you when somebody asks whether the backups work.
+
+One trap found while building this, worth knowing if you ever write your own
+check: `n_live_tup` is an estimate maintained by autovacuum and reads 0 for a
+table that has rows but has not been analysed. A comparison built on it
+silently skips exactly the tables most recently written to — the first
+version of this script reported 14 populated tables where there were 53. It
+now refreshes statistics on both sides before comparing.
 
 ---
 

@@ -48,3 +48,7 @@ packages/db/parts/
 
 # TypeScript incremental build state — machine-local, never useful in a diff
 *.tsbuildinfo
+
+# local backups — never in git
+backups/
+*.dump

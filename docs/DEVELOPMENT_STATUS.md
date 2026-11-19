@@ -1,7 +1,7 @@
 # Development status
 
 Updated: 19 November 2026
-Phase: **7 — Integrations**
+Phase: **9 — Hardening**
 
 This file is the single honest record of what works, what does not, and what
 is waiting on someone. A feature is listed as complete only when its critical
@@ -244,6 +244,17 @@ only when real credentials have been used and a real call has succeeded.
 | A formula in a cell is defused | A member named `=HYPERLINK(…)` is prefixed, so opening the file is not code execution on whoever opens it |
 | Taking an export is audited | A download of a whole member list is worth being able to see in the activity log, with who and when |
 | A member can take their own data | Their details, visits, payments, bookings, assessments and the full health declaration the gym's bulk export deliberately summarises — which is what India's DPDP Act gives them a right to |
+| **— Phase 9 —** | |
+| No secret can reach a repository unnoticed | A scanner over what git tracks *and over everything it ever tracked*, since a key committed and deleted is still readable with `git show`. Wired into `pnpm verify`, and tested by planting each kind of secret and checking it is caught |
+| Gym registration is limited | It is public, creates a tenant with a dozen rows, and had no limit at all: one script could have filled the database on a shared host. Ten an hour per address, with a message a real gym owner can act on and no number for a script to tune against |
+| The address a limit counts against cannot be chosen by the caller | `X-Forwarded-For` is read from the **right**, not the left. Taking the first entry — the obvious reading, and what this did — let anyone set their own throttle key and reduced every rate limit to decoration |
+| Sign-in codes and resets are limited per connection too | The existing cooldowns were per number and per email address, which does nothing against a script walking a list — and every sign-in code that finds a real member costs the gym a WhatsApp message |
+| A daily tidy-up that actually runs | Expired tokens, dead sessions, old login attempts and spent throttle counters, in bounded batches so a backlog clears over several passes rather than one request being cut off at 120 seconds |
+| **pg_dump is refused by this database, and now says so** | Every tenant table has FORCE ROW LEVEL SECURITY, which applies to the owner too — so a nightly dump set up the obvious way fails every night. Dumps run as the BYPASSRLS role, restores as the owner, and the script explains the failure rather than printing a stack trace |
+| A backup is verified by being restored | Into a throwaway database, comparing row counts table by table and confirming row-level security came back **enabled and forced** with its policies. A restore that loses RLS comes back up with every gym able to read every other gym's data, looking entirely healthy |
+| **Throttling and housekeeping suite — 15 tests** | **Including that a refused request still counts, so sitting on a limit does not reset it** |
+| **Secret scan suite — 16 tests** | **Each rule proved against a planted secret, and the near-misses that must stay allowed** |
+| **Backup suite — 4 tests** | **Including that dumping without BYPASSRLS fails with an explanation** |
 | **Data export suite — 16 tests, plus 4 on the archive itself** | **Including that one gym's export carries no row of another's, and that a member's carries nobody else's** |
 | **Online payment suite — 23 tests** | **Including a correctly signed confirmation for a payment that never succeeded, a payment belonging to another order, and the same webhook arriving twice** |
 | **Platform console suite — 26 tests** | **Including that a gym owner cannot open platform context at all, and that every platform action is readable in the gym's own log** |
@@ -336,6 +347,10 @@ Recorded because each one says something about where the bugs actually are.
 | `withPlatform` promised in a comment what nothing enforced | Writing the console's gym detail view | Its doc comment said it "does NOT open a gym's operational data". Nothing checked: it returned the plain client, and a stray `tx.member.findMany()` would have been answered — by an empty array, because row-level security denies it silently. So the first version of the detail page reported **every gym as having zero members, zero branches and zero staff**, and looked entirely plausible doing it. The data layer now refuses those models by name, the refusal says which call was meant, and the counts come from the job role deliberately. |
 | The console's call list could silently omit the most urgent gym | Platform console suite | It read every trial and past-due subscription with a `take` and no ordering, then filtered to "ending within seven days" in memory. PostgreSQL returns rows in whatever order suits it, so with more gyms than the page size, **the gyms about to lapse could be exactly the ones dropped** — a sales list that quietly leaves people out is worse than no list, because nobody knows to check. It now narrows and orders in SQL before taking a page. |
 | The console claimed a reach the database does not permit | Platform console suite | `PLATFORM_MODELS` started as a hand-reasoned guess at "platform-owned tables" and included `OrgSetting`, which the generated RLS does not grant platform context. Every owner's phone number came back null, so **the call list had no numbers to call**. The list now mirrors the policies exactly and the contact details are read, one column, through the job role. |
+| Backups of this database did not work at all | Running `scripts/backup.mjs` for the first time | `pg_dump` is **refused outright**: every tenant table has FORCE ROW LEVEL SECURITY, which applies to the table's owner, so a dump with no organization in context fails with `query would be affected by row-level security policy for table "attendance"`. Anyone setting up a nightly dump with the owner credentials — the obvious thing — would have had a job failing every night, and found out on the day they needed it. Dumps now run as the BYPASSRLS role; the script names the problem when they do not. |
+| The rate limits could be bypassed by anybody who read the code | Isolating the e2e suites from each other's throttle | `clientIp()` took the **first** entry of `X-Forwarded-For`. A proxy appends the address it received from, so the first entry is whatever the caller put there — meaning a caller could choose their own throttle key and the login, registration and sign-in-code limits were all decoration. Read from the right now, with the number of trusted proxies configured. |
+| The backup verification was passing by not looking | Being suspicious of a number | It reported "14 populated tables restored" where there are 53. `n_live_tup` is an estimate maintained by autovacuum and reads 0 for a table that has rows but has not been analysed — so the comparison silently skipped exactly the tables most recently written to. Statistics are refreshed on both sides before comparing. |
+| Both e2e suites poisoned their own next run | Running them twice in a row | The registration throttle counted their registrations against one address — `127.0.0.1`, which Next fills in from the socket — so the third run of the day failed at its first request. Each run now presents its own forwarded address, which doubles as the check that a caller-supplied leading entry is ignored. |
 | The product promised an export that did not exist | Auditing what `org.export.create` actually did | The permission was seeded, granted to two roles, and given a **special carve-out in the permission engine** so it would survive read-only mode. The subscription page told gyms a lapsed trial means "you keep everything and can export it at any time". The platform console said a suspended gym "can still export everything". Nothing implemented an export. Every one of those sentences was true about the database and false about the product — the same failure as the audit log, found the same way: by checking whether a promise in the interface had anything behind it. |
 | Three query flags meant the opposite of what they said | An e2e check that returned an empty list | `z.coerce.boolean()` applies JavaScript truthiness, so the string `"false"` — which is exactly what a query string carries — came out as `true`. `?platformOnly=false` on the audit log meant *only* platform rows; `?withStats=false` meant with stats; `?includeCancelled=false` included cancelled classes. Nothing errored, the answers were just wrong, and 15 flags across six contract files were built on it. One parser now handles all of them and refuses what it cannot read. |
 | A browser check failed one run in three | Running the suite twice in a row | The branch-move check read the API as soon as the dialog closed, which says the request was sent rather than that the move had landed. It now polls. Second instance of this exact race in two days — the first was the limits panel — so it is a pattern in this suite, not an accident. |
@@ -352,6 +367,8 @@ Recorded because each one says something about where the bugs actually are.
 | Background jobs run under a `BYPASSRLS` role | Cron work is legitimately cross-tenant | Reachable only from `/api/cron` behind a shared secret; never from a request path |
 | Column names are camelCase while table names are snake_case | Prisma's default column mapping | Consistent and documented; the RLS generator quotes identifiers correctly |
 | `prisma migrate dev` needs a shadow database | Prisma's drift detection | `shadowDatabaseUrl` on managed providers; `CREATEDB` on the owner role locally |
+| Three tables sit outside row-level security | `sessions`, `login_attempts` and `throttle_hits` are all consulted before any tenant is known — by definition | None carries tenant data: a token hash, an email and an outcome, an address and a timestamp. Documented in `docs/SECURITY.md`, and swept by the housekeeping job |
+| A volumetric attack is not handled in the application | A flood from a thousand addresses is an edge problem, and a database-backed counter cannot absorb it | The per-address limits stop the single script hammering one endpoint, which is the realistic abuse of a self-serve form. Volumetric defence belongs at Cloudflare or whatever sits in front, and saying so is better than pretending otherwise |
 | No integration is verified | No real credentials yet, by design | Each will move to "verified" only after a real successful call |
 | **Razorpay has never completed a real payment** | No test credentials exist yet | The whole flow is built and tested against a stub standing in for Razorpay at the HTTP boundary. What that cannot prove is that Razorpay's real API behaves as the stub does. One part *is* confirmed against the live API: the credential check reaches `api.razorpay.com` and correctly rejects a bad key pair with 401. Nothing else has been exercised for real — no order created, no payment captured, no webhook received from Razorpay itself, and `checkout.js` has never opened in a browser under this site's CSP |
 | Nested relation reads are not caught by the platform guard | Prisma extensions see the top-level model only | Row-level security still empties them, so the data does not leak — the guard just cannot explain why the result is empty. Platform reads select named commercial columns for that reason, and the limitation is stated in the code |
@@ -363,6 +380,49 @@ Recorded because each one says something about where the bugs actually are.
 ---
 
 ## Changelog
+
+**19 November 2026 — Hardening, and a backup that did not work**
+Four things, and the second one is the one that mattered.
+
+A secret scanner, because "never put credentials in GitHub" is a rule
+somebody has to remember and the one time it is forgotten is the time it
+counts. It reads what git tracks *and everything git ever tracked*, since a
+key committed and then deleted is still there for anybody who runs `git
+show`. Each rule is tested by planting the thing it is meant to catch, and
+the near-misses that must stay allowed are tested too — the first version
+flagged a megabyte of base64-inlined PDF fonts as a Meta token, and a
+scanner that cries wolf gets switched off.
+
+Then: **backups of this database did not work.** `pg_dump` is refused
+outright, because every tenant table has FORCE ROW LEVEL SECURITY and that
+applies to the table's owner as well. A nightly dump set up with the owner
+credentials — the obvious thing to do — would have failed every night, and
+anyone not reading the cron mail would have found out on the day they needed
+it. Dumps now run as the BYPASSRLS role and restores as the owner, and the
+script explains that specific failure rather than printing a stack trace.
+`pnpm backup:verify` restores into a throwaway database, compares row counts
+table by table, and checks that row-level security came back enabled and
+forced with its policies — because a restore that loses RLS comes back up
+with every gym able to read every other gym's data, looking perfectly
+healthy. That verification was itself passing by not looking: it reported 14
+populated tables where there are 53, because `n_live_tup` reads 0 for a
+table that has rows but has not been analysed.
+
+Registration was public, created a tenant with a dozen rows, and had no
+limit at all. It has one now — and isolating the e2e suites from each other's
+throttle exposed something worse: `clientIp()` took the **first** entry of
+X-Forwarded-For. A proxy appends the address it received from, so the first
+entry is whatever the caller put in the header. Anybody who read the code
+could choose their own throttle key, which made the login, registration and
+sign-in-code limits decoration. Read from the right now, with the number of
+trusted proxies configured and the consequence of getting it wrong written
+down in both directions.
+
+And the daily tidy-up: `purgeExpiredTokens` had been written with a comment
+saying a daily job ran it, and no such job existed, so expired sign-in codes
+accumulated for ever. 1,095 checks passing: 576 tests, 271 HTTP checks and
+248 browser checks.
+
 
 **19 November 2026 — The export the product had already promised**
 `org.export.create` was seeded, granted to two roles, and carved out of

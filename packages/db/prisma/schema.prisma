@@ -829,6 +829,30 @@ model Session {
 }
 
 /// Brute-force defence. Global by email and IP, not tenant-scoped.
+/// A counted hit against a public endpoint, for throttling.
+///
+/// Deliberately separate from LoginAttempt rather than reusing it. Those rows
+/// feed the login throttle, so a handful of failed registrations from one
+/// office would have counted as failed logins and locked everybody there out
+/// of signing in — two different limits sharing one counter is how an
+/// unrelated action locks a door.
+///
+/// Outside row-level security, like LoginAttempt and Session: it is consulted
+/// before any tenant exists, by definition.
+model ThrottleHit {
+  id     String @id @default(uuid(7)) @db.Uuid
+  /// What is being limited, e.g. "registration".
+  bucket String
+  /// Who or what it is counted against — an IP address, usually.
+  key    String
+
+  occurredAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([bucket, key, occurredAt])
+  @@index([occurredAt])
+  @@map("throttle_hits")
+}
+
 model LoginAttempt {
   id          String   @id @default(uuid(7)) @db.Uuid
   email       String

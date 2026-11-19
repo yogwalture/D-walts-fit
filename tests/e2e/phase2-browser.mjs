@@ -109,8 +109,24 @@ function section(name) {
   console.log(`\n${name}`);
 }
 
+/**
+ * A forwarded address unique to this run.
+ *
+ * The registration throttle added in Phase 9 counts per address, and Next
+ * fills in `x-forwarded-for` from the socket when nothing else does — so
+ * every run of this suite shared one allowance as `127.0.0.1` and the third
+ * run of the day failed at its first click. Presented the way a proxy
+ * presents one: the client's own claim first, which the app must ignore, and
+ * the proxy's view of the client last.
+ */
+const forwardedFor = `10.0.0.1, 198.51.100.${(Date.now() % 150) + 60}`;
+const browserHeaders = { 'x-forwarded-for': forwardedFor };
+
 const browser = await chromium.launch();
-const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+const context = await browser.newContext({
+  viewport: { width: 1280, height: 900 },
+  extraHTTPHeaders: browserHeaders,
+});
 const page = await context.newPage();
 
 page.on('console', (message) => {
@@ -2075,7 +2091,10 @@ try {
     password: gym.password,
   };
 
-  const operatorContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const operatorContext = await browser.newContext({
+    viewport: { width: 1280, height: 900 },
+    extraHTTPHeaders: browserHeaders,
+  });
   const admin = await operatorContext.newPage();
 
   await admin.goto(`${BASE}/register-gym`, { waitUntil: 'domcontentloaded' });
