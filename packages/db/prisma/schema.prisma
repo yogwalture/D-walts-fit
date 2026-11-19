@@ -489,6 +489,7 @@ model Organization {
   equipmentMaintenanceLogs  EquipmentMaintenanceLog[]
 
   // platform (SaaS) and operations
+  paymentGateway     PaymentGatewaySetting?
   tenantSubscription TenantSubscription?
   tenantInvoices     TenantInvoice[]
   tenantPayments     TenantPayment[]
@@ -2154,6 +2155,56 @@ model ClassBooking {
 /// Per-gym WhatsApp Business credentials. accessTokenEncrypted is
 /// AES-256-GCM ciphertext; the key lives only in the environment, so a
 /// database dump alone yields nothing usable. Write-only through the API.
+/// One gym's own payment gateway account.
+///
+/// Deliberately per gym rather than one account for the platform. A member's
+/// subscription fee is the gym's money: routing every gym's collections
+/// through our Razorpay account would make us the one holding other
+/// businesses' takings, which in India needs a payment aggregator licence we
+/// do not have and should not need. The platform's own credentials — in the
+/// environment, not here — are used for exactly one thing: billing gyms for
+/// their subscription to this software.
+model PaymentGatewaySetting {
+  id             String  @id @default(uuid(7)) @db.Uuid
+  organizationId String  @unique @db.Uuid
+
+  provider PaymentGatewayProvider @default(RAZORPAY)
+
+  /// Public by design — it is sent to the browser to open checkout.
+  keyId String?
+  /// AES-256-GCM. Never leaves the server, never reaches a log.
+  keySecretEncrypted String?
+  /// The webhook signing secret, which Razorpay lets the gym choose.
+  webhookSecretEncrypted String?
+
+  /// Opaque, random, and in the webhook URL we give the gym. Not a secret:
+  /// it only narrows which gym's signing secret to check the HMAC against,
+  /// and a wrong signature is still refused. Not the organization id,
+  /// because a tenant id in a URL anybody can see invites guessing at it.
+  webhookId String @unique
+
+  /// Razorpay key ids carry their own mode: rzp_test_… or rzp_live_….
+  isLiveMode Boolean @default(false)
+
+  isEnabled      Boolean   @default(false)
+  isVerified     Boolean   @default(false)
+  lastVerifiedAt DateTime? @db.Timestamptz(3)
+  lastErrorCode  String?
+  lastErrorAt    DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, isEnabled])
+  @@map("payment_gateway_settings")
+}
+
+enum PaymentGatewayProvider {
+  RAZORPAY
+}
+
 model WhatsappSetting {
   id             String  @id @default(uuid(7)) @db.Uuid
   organizationId String  @unique @db.Uuid

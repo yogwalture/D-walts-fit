@@ -235,3 +235,15 @@ export function parseWebhook(
     raw: event,
   };
 }
+
+/**
+ * A read that proves a key pair works without moving money.
+ *
+ * Used when a gym connects their account: listing one order authenticates
+ * against Razorpay and tells us the credentials are real. Verifying by
+ * taking a payment would be absurd, and verifying by not checking at all
+ * means the first person to find out is a member tapping Pay.
+ */
+export async function fetchOrders(config: RazorpayConfig): Promise<void> {
+  await call<{ count: number }>(config, '/orders?count=1', { method: 'GET' });
+}

@@ -1035,6 +1035,53 @@ check "every screen in the sidebar loads with no data" "0" "$screen_failures"
 
 rm -f "$JAR4"
 
+# -------------------------------------------------------- online payments ---
+#
+# No Razorpay credentials exist, so what is checked here is the honest
+# degradation: an unconnected gym must say so rather than offer a button
+# that opens an error, and nothing may mark an invoice paid without a
+# signature verifying on the server.
+printf '\nonline payments\n'
+
+body=$(curl -s -b "$JAR" "$BASE/api/v1/org/gateway")
+has "the gateway settings read back"            "$body" '"isEnabled":false'
+has "and say nothing is connected"              "$body" '"keyId":null'
+hasnt "and never carry a secret"                "$body" "keySecretEncrypted"
+
+code=$(curl -s -b "$JAR" -o /tmp/e2e.pay -w '%{http_code}' "$BASE/settings/payments")
+check "the online payments page loads" "200" "$code"
+has "it says the money goes to the gym's own account" "$(cat /tmp/e2e.pay)" "your own Razorpay account"
+has "and that nothing a phone claims is treated as money" "$(cat /tmp/e2e.pay)" "confirms it to our server"
+
+body=$(curl -s -b "$JAR" "$BASE/api/v1/finance/online")
+has "the desk is told online payment is unavailable" "$body" '"available":false'
+has "with a reason it can show somebody"             "$body" "not connected"
+
+body=$(curl -s -b "$JAR" -X POST "$BASE/api/v1/org/gateway" \
+  -H 'content-type: application/json' \
+  -d '{"keyId":"my-api-key","keySecret":"something","webhookSecret":"whatever"}')
+has "a key id that is not a Razorpay key id is refused" "$body" "VALIDATION_FAILED"
+
+# The invoice the member-import section created earlier has nothing to pay,
+# so this exercises the refusal path with a well-formed request.
+body=$(curl -s -b "$JAR" -X POST "$BASE/api/v1/finance/online" \
+  -H 'content-type: application/json' \
+  -d '{"action":"start","invoiceId":"00000000-0000-7000-8000-000000000000"}')
+has "starting a payment on an unconnected gym is refused" \
+  "$body" "INTEGRATION_NOT_CONFIGURED"
+
+body=$(curl -s -b "$JAR" -X POST "$BASE/api/v1/finance/online" \
+  -H 'content-type: application/json' \
+  -d '{"action":"confirm","orderId":"order_madeUp","razorpayPaymentId":"pay_madeUp","signature":"0000000000000000"}')
+has "and so is confirming one out of thin air" "$body" "INTEGRATION_NOT_CONFIGURED"
+
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/webhooks/razorpay/not-a-real-id" \
+  -H 'content-type: application/json' -d '{"event":"payment.captured"}')
+check "an unknown gym webhook id is answered 404, learning a prober nothing" "404" "$code"
+
+body=$(curl -s -b "$JAR" "$BASE/api/v1/session")
+has "a gym owner may pay online on a member's behalf" "$body" "finance.payment.create"
+
 # ------------------------------------------------------- platform console ---
 #
 # The business of selling the software. Two things are checked harder than the

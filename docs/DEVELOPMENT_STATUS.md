@@ -1,7 +1,7 @@
 # Development status
 
 Updated: 19 November 2026
-Phase: **6 — Commercial SaaS**
+Phase: **7 — Integrations**
 
 This file is the single honest record of what works, what does not, and what
 is waiting on someone. A feature is listed as complete only when its critical
@@ -15,9 +15,9 @@ only when real credentials have been used and a real call has succeeded.
 | Item | Evidence |
 | --- | --- |
 | Monorepo scaffold — Turborepo, pnpm workspaces, strict TypeScript | `pnpm install` resolves; workspace packages link |
-| Data model: 88 models, 45 enums | `prisma validate` passes |
+| Data model: 92 models, 49 enums | `prisma validate` passes |
 | Initial migration | Applied to PostgreSQL 16.15; 85 tables created |
-| Row-level security migration | Applied; 79 tables with RLS enabled **and forced**, 79 policies |
+| Row-level security migration | Applied; 82 tables with RLS enabled **and forced**, 82 policies. Regenerated from the live schema after every new table, so one cannot be left unprotected |
 | RLS policy generator | Reads `information_schema`, so a new table cannot be missed |
 | Three-role database separation | `gym_owner` (DDL), `gym_app` (runtime, NOBYPASSRLS), `gym_jobs` (cron, BYPASSRLS) |
 | Tenant-scoped Prisma client | Filters reads, stamps writes, throws on missing context, refuses cross-tenant payloads |
@@ -220,6 +220,20 @@ only when real credentials have been used and a real call has succeeded.
 | A gym's own activity log | Who changed what, including us — with a view that shows only what the software company did. Every claim elsewhere that "the owner can see it" is settled on that screen |
 | The log is not a second copy of their data | Stored before/after payloads stay out of the view; the summary names their own member, because "a member was added" tells an owner nothing |
 | Support is named as support | That the vendor acted is the gym's business; which person at the vendor pressed the button is ours |
+| **— Phase 7 —** | |
+| Each gym collects into their own Razorpay account | A member's fee is the gym's money. Routing every gym's takings through one platform account would make us the party holding other businesses' money, which in India is a payment aggregator and needs an RBI licence |
+| Credentials are per gym, encrypted, and write-only | AES-256-GCM, in through one service, out only as the last four characters, decrypted in two places and nowhere else |
+| Connected only after Razorpay says yes | Verified by a read against their account — never by taking a payment, and never by not checking. A "connected" badge earned any other way is a guess whose first victim is a member tapping Pay |
+| Each gym has its own webhook URL | Its own signing secret needs its own path. The id in the URL is opaque and random, and selects only *which* gym's secret to check the HMAC against — a wrong signature is still refused, and the ledger write is scoped by our own order row |
+| The amount comes from the invoice | A browser does not get to say what is owed, and an order the gateway creates for a different amount than we asked for is abandoned rather than settled against |
+| One open order per invoice | A second live order on the same invoice is how an invoice gets paid twice, so an existing one is reused |
+| A frontend success message is never proof of payment | The browser hands back what Razorpay gave it; the server checks the signature and then **asks Razorpay's own API** what the status and amount actually are, and settles from that answer |
+| A signed-but-false confirmation is refused | Verified by mutation: trusting the signature alone makes two tests fail |
+| Settlement is idempotent at the settlement path, not just above it | A retried webhook, and the webhook-versus-browser race, both land on one captured payment and one receipt number. Also verified by mutation — and the first version of the double-pay test did **not** catch it |
+| An online payment gets a receipt number | Allocated on capture, not on ordering, so the GST-relevant series stays gapless; a member who pays by UPI has the same right to a receipt as one who pays in notes |
+| Pending reads as pending | "Your bank has not confirmed that yet" rather than an error page, because a few seconds of pending is a normal state and the money may well have left their account |
+| An unconnected gym says so | The member app tells them to pay at the desk, which is true, rather than offering a button that opens an error |
+| **Online payment suite — 23 tests** | **Including a correctly signed confirmation for a payment that never succeeded, a payment belonging to another order, and the same webhook arriving twice** |
 | **Platform console suite — 26 tests** | **Including that a gym owner cannot open platform context at all, and that every platform action is readable in the gym's own log** |
 
 ### What the isolation suite actually proves
@@ -268,6 +282,7 @@ advanced integrations, native mobile, hardening.
 
 | Blocker | Blocks | Needed by |
 | --- | --- | --- |
+| Razorpay test credentials (key id, key secret) | Verifying online payments end to end — the code is built and stubbed-tested, but no real order has ever been created | Before Phase 7 can close |
 | Managed PostgreSQL provider decision and connection string | Any deployment | Before the first deploy |
 | GitHub repository | Version control, CI, Hostinger auto-deploy | Before the first deploy |
 | Hostinger Node.js app slot | Deployment — the account already runs 4 Node.js apps against a documented limit of 5 | Before the first deploy |
@@ -323,6 +338,7 @@ Recorded because each one says something about where the bugs actually are.
 | Column names are camelCase while table names are snake_case | Prisma's default column mapping | Consistent and documented; the RLS generator quotes identifiers correctly |
 | `prisma migrate dev` needs a shadow database | Prisma's drift detection | `shadowDatabaseUrl` on managed providers; `CREATEDB` on the owner role locally |
 | No integration is verified | No real credentials yet, by design | Each will move to "verified" only after a real successful call |
+| **Razorpay has never completed a real payment** | No test credentials exist yet | The whole flow is built and tested against a stub standing in for Razorpay at the HTTP boundary. What that cannot prove is that Razorpay's real API behaves as the stub does. One part *is* confirmed against the live API: the credential check reaches `api.razorpay.com` and correctly rejects a bad key pair with 401. Nothing else has been exercised for real — no order created, no payment captured, no webhook received from Razorpay itself, and `checkout.js` has never opened in a browser under this site's CSP |
 | Nested relation reads are not caught by the platform guard | Prisma extensions see the top-level model only | Row-level security still empties them, so the data does not leak — the guard just cannot explain why the result is empty. Platform reads select named commercial columns for that reason, and the limitation is stated in the code |
 | Platform-side usage counts come from the `BYPASSRLS` job role | Counting across tenants is legitimately cross-tenant, and the gym's own policies deny it | Narrowly bounded by rule and by code review: counts, and the account holder's own contact details. Never a member, a payment, a message or an attendance row |
 | A platform administrator who is also a gym owner is one account | Somebody will run their own gym on the product they sell | The two sets of powers never mix: platform keys grant nothing inside a tenant, and gym keys grant nothing platform-side. Both suites assert it |
@@ -332,6 +348,48 @@ Recorded because each one says something about where the bugs actually are.
 ---
 
 ## Changelog
+
+**19 November 2026 — Taking money online, and whose money it is**
+The server half of Razorpay was built and tested in Phase 2; nothing created
+an order, so none of it could run. It does now — and the first decision was
+commercial rather than technical. A member's fee is the gym's money, so each
+gym connects **their own** Razorpay account and the fee settles into their
+own bank. Putting every gym's takings through one platform account would
+have been less work and would have made us the party holding several hundred
+other businesses' money, which in India is a payment aggregator and needs an
+RBI licence. Per-gym accounts also mean per-gym signing secrets, so each gym
+gets its own webhook URL; the id in that URL is opaque and decides nothing,
+it only says whose secret to check the HMAC against.
+
+The rule that shaped the rest: a frontend payment success message is never
+proof of payment. The browser gets exactly one power — to open checkout
+against an order we created — and none at all to tell us what happened. It
+hands back what Razorpay gave it; the server checks the signature, which an
+attacker cannot forge without the gym's secret, and then, because a valid
+signature proves only that the handoff came from Razorpay and not what it
+says, asks Razorpay's own API what the status and amount actually are and
+settles from that. Two mutation checks confirm it: trusting the signature
+alone makes two tests fail.
+
+A third mutation check found a real gap. The double-pay test passed with the
+idempotency guard removed, because `confirmOnlinePayment` short-circuits on
+an already-captured row and never reaches the settlement path — so the test
+was proving the wrong guard. The retried-webhook case, which is the one
+Razorpay actually generates, now has its own test, and removing the guard
+fails it.
+
+Online payments also now get a receipt number, allocated on capture rather
+than on ordering so the GST series stays gapless. A member paying by UPI has
+the same right to a receipt as one paying in notes, and a series that
+quietly omits online takings does not reconcile.
+
+What is **not** done: no real payment has ever been taken. Everything is
+tested against a stub standing in for Razorpay. One part is confirmed
+against the live API — the credential check reaches api.razorpay.com and
+correctly rejects a bad key pair — and nothing else. That stays recorded as
+unverified until real test keys exist. 991 checks passing: 519 tests, 234
+HTTP checks and 238 browser checks.
+
 
 **19 November 2026 — The console, and a comment that was not a boundary**
 Running this as a business needs a different question answered than running

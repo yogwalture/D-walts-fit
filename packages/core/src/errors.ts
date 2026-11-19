@@ -42,7 +42,11 @@ export type ErrorCode =
   // 500 / 502
   | 'INTERNAL_ERROR'
   | 'INTEGRATION_UNAVAILABLE'
-  | 'INTEGRATION_NOT_CONFIGURED';
+  | 'INTEGRATION_NOT_CONFIGURED'
+  // 422 — the credentials reached the provider and the provider said no.
+  // Distinct from NOT_CONFIGURED (nothing stored) and UNAVAILABLE (we could
+  // not reach them at all), because the three need different actions.
+  | 'INTEGRATION_UNVERIFIED';
 
 const STATUS: Record<ErrorCode, number> = {
   UNAUTHENTICATED: 401,
@@ -72,6 +76,7 @@ const STATUS: Record<ErrorCode, number> = {
   INTERNAL_ERROR: 500,
   INTEGRATION_UNAVAILABLE: 502,
   INTEGRATION_NOT_CONFIGURED: 503,
+  INTEGRATION_UNVERIFIED: 422,
 };
 
 export interface ErrorDetail {

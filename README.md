@@ -11,7 +11,7 @@ not code.
 
 ## Status
 
-**Phase 6 — Commercial SaaS. In progress.**
+**Phase 7 — Integrations. In progress.**
 See [`docs/DEVELOPMENT_STATUS.md`](docs/DEVELOPMENT_STATUS.md) for what is
 complete, pending and blocked. The full architecture and roadmap live in the
 project's architecture document.
@@ -22,9 +22,9 @@ project's architecture document.
 
 | Area | State |
 | --- | --- |
-| Data model | 88 models, 45 enums, verified against PostgreSQL 16 |
-| Migrations | `init` + `row_level_security`, both applied and reversible by replay |
-| Tenant isolation | 81 tables under forced row-level security, 81 policies |
+| Data model | 92 models, 49 enums, verified against PostgreSQL 16 |
+| Migrations | Applied in order and reversible by replay; the RLS policies are regenerated from the live schema after every table |
+| Tenant isolation | 82 tables under forced row-level security, 82 policies |
 | Permission registry | 140 permissions, 7 system roles seeded |
 | Authentication | Argon2id, database sessions, TOTP, lockout, organization switching |
 | Account flows | Password reset, staff invitations, two-factor enrolment, member one-time-code login |
@@ -45,10 +45,11 @@ project's architecture document.
 | Member app | Sign in with a code, see your membership and dues, book classes, check yourself in — installable, and it never caches the API |
 | Messaging | WhatsApp Cloud API with per-gym encrypted credentials, approved templates, delivery receipts, STOP honoured on arrival, daily expiry reminders, and a queue that never claims to have sent what it has not |
 | Plans and billing tiers | Chosen at registration, and a feature outside the plan explains itself instead of failing |
+| Online payments | Each gym connects their own Razorpay account, so a member's fee settles into the gym's bank and never passes through us. A payment exists only after Razorpay confirms it to our server — not when a browser says so |
 | The platform console | MRR and churn, a call list of trials ending and gyms lapsing with the owner's number, and a commercial page per gym with two levers: extend a trial, agree a limit outside the plan |
 | The platform boundary | Platform context opens only for active platform staff, refuses a gym's own tables by name, and every action it takes lands in that gym's audit log with its reason |
 | Web application | Next.js 15 — marketing page, auth, and twenty-eight screens of the gym portal, plus the member app and the platform console |
-| Tests | **948 passing**: 40 isolation, 38 auth and plan locks, 30 account flows, 56 operations, 24 invoices, 42 import, 20 expenses, 20 staff, 21 rota and leave, 20 enquiries, 30 classes, 20 shop, 19 reports, 9 branches, 30 messaging, 18 member portal, 19 platform billing, 26 platform console, 13 contracts, 221 HTTP checks, 231 browser checks |
+| Tests | **991 passing**: 40 isolation, 38 auth and plan locks, 30 account flows, 56 operations, 25 invoices, 42 import, 20 expenses, 20 staff, 21 rota and leave, 20 enquiries, 30 classes, 20 shop, 19 reports, 9 branches, 30 messaging, 18 member portal, 19 platform billing, 26 platform console, 23 online payments, 13 contracts, 234 HTTP checks, 238 browser checks |
 
 ---
 
@@ -101,9 +102,9 @@ pnpm dev                 # http://localhost:3000
 To run everything:
 
 ```bash
-pnpm vitest run                                   # 496 tests against a real database
-bash tests/e2e/http-smoke.sh                      # 221 checks against a running server
-node tests/e2e/phase2-browser.mjs                 # 231 checks in a real browser
+pnpm vitest run                                   # 519 tests against a real database
+bash tests/e2e/http-smoke.sh                      # 234 checks against a running server
+node tests/e2e/phase2-browser.mjs                 # 238 checks in a real browser
 ```
 
 The browser suite needs Playwright and a server on `http://127.0.0.1:3100`
@@ -213,7 +214,7 @@ Four independent layers, described in full in
    in the database. Never from a URL, header or request body.
 2. **The application cannot build an unscoped query** — a Prisma extension
    filters reads, stamps writes, and throws when there is no tenant context.
-3. **PostgreSQL enforces it again** — forced row-level security on 79 tables,
+3. **PostgreSQL enforces it again** — forced row-level security on 82 tables,
    under a role that cannot bypass it.
 4. **Tests that try to break it** — 40 of them, on every commit.
 

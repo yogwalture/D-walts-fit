@@ -4,8 +4,14 @@ import { applyVerifiedGatewayPayment, markGatewayPaymentFailed } from '@gym/core
 import { getRazorpayConfig, parseWebhook } from '@gym/integrations';
 
 /**
- * Razorpay's webhook. The only thing in the product that may mark a gateway
- * payment captured.
+ * The PLATFORM's Razorpay webhook: our own subscription collections from
+ * gyms, and nothing else.
+ *
+ * A gym's member payments do not come through here. Each gym collects into
+ * their own Razorpay account and so has their own signing secret and their
+ * own webhook URL — see `[webhookId]/route.ts`. This one is signed with the
+ * platform's environment credentials, which exist to bill gyms for the
+ * software and for no other purpose.
  *
  * The rules this route exists to enforce:
  *

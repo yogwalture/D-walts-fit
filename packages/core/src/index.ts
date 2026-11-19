@@ -32,6 +32,8 @@ export * from './memberships/plans';
 export * from './memberships/subscriptions';
 export * from './attendance/service';
 export * from './billing/payments';
+export * from './billing/gateway';
+export * from './billing/online';
 export * from './billing/invoices';
 export * from './billing/expenses';
 export * from './dashboard/service';

@@ -254,10 +254,19 @@ export async function applyVerifiedGatewayPayment(
   }
 
   await db.$transaction(async (tx: any) => {
+    // A receipt is allocated here and not when the order was created,
+    // because the series must be gapless: numbering an order that is never
+    // paid would leave a hole in a GST-relevant sequence. It is allocated
+    // for an online payment exactly as for cash at the desk — a member who
+    // pays by UPI has the same right to a receipt as one who pays in notes,
+    // and a series that quietly omits online takings does not reconcile.
+    const receipt = await allocateReceiptNumber(tx, input.organizationId);
+
     await tx.payment.update({
       where: { id: pending.id },
       data: {
         status: 'CAPTURED',
+        receiptCode: receipt.code,
         razorpayPaymentId: input.razorpayPaymentId,
         gatewayPayload: (input.payload ?? null) as object,
         settledAt: new Date(),
@@ -324,7 +333,7 @@ export async function applyVerifiedGatewayPayment(
         action: 'payment.gateway.captured',
         entityType: 'Payment',
         entityId: pending.id,
-        summary: `Razorpay ${input.razorpayPaymentId} verified and captured`,
+        summary: `Razorpay ${input.razorpayPaymentId} verified and captured, receipt ${receipt.code}`,
         afterData: {
           razorpayPaymentId: input.razorpayPaymentId,
           amount: toRupees(input.amountPaise),

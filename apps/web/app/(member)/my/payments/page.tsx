@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
-import { memberPayments } from '@gym/core';
+import { memberPayments, onlinePaymentAvailability } from '@gym/core';
 import { requireActor } from '@/lib/current-session';
 import { memberContextOf } from '@/lib/tenant';
 import { Badge, Card, EmptyState, rupees } from '@/components/ui';
+import { PayButton } from './pay-button';
 
 export const metadata: Metadata = { title: 'Payments' };
 export const dynamic = 'force-dynamic';
@@ -15,12 +16,19 @@ export const dynamic = 'force-dynamic';
  * answer.
  */
 export default async function MyPaymentsPage() {
-  const { actor } = await requireActor('/my/payments');
-  const { rows, outstanding } = await memberPayments(
-    memberContextOf(actor),
-    actor.permissions,
-    {},
-  );
+  const { session, actor } = await requireActor('/my/payments');
+  const ctx = memberContextOf(actor);
+
+  const [{ rows, outstanding }, online] = await Promise.all([
+    memberPayments(ctx, actor.permissions, {}),
+    // Whether this gym takes payment online at all. Asked once, here,
+    // rather than letting each row find out by failing.
+    onlinePaymentAvailability(ctx, actor.permissions).catch(() => ({
+      available: false,
+      isLiveMode: false,
+      reason: null,
+    })),
+  ]);
 
   const owed = Number(outstanding) > 0;
 
@@ -33,7 +41,9 @@ export default async function MyPaymentsPage() {
         <p className="text-3xl font-semibold text-ink">{rupees(outstanding)}</p>
         <p className="mt-1 text-sm text-ink-muted">
           {owed
-            ? 'Pay at the desk, or ask them to send you a payment link.'
+            ? online.available
+              ? 'Pay the invoice below, or settle it at the desk.'
+              : 'Pay at the desk, or ask them to send you a payment link.'
             : 'Nothing owing — you are all settled.'}
         </p>
       </Card>
@@ -64,6 +74,15 @@ export default async function MyPaymentsPage() {
                     )}
                   </div>
                 </div>
+
+                {row.kind === 'INVOICE' && Number(row.amountDue) > 0 && (
+                  <PayButton
+                    invoiceId={row.id}
+                    amountDue={rupees(row.amountDue!)}
+                    memberName={session.user.fullName}
+                    available={online.available}
+                  />
+                )}
               </li>
             ))}
           </ul>

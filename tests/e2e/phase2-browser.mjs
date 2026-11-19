@@ -1882,6 +1882,71 @@ try {
   check('the original owner can sign back in', page.url().includes('/dashboard'));
 
   // ------------------------------------------------------------- the CSP ---
+  // -------------------------------------------------------- online payments ---
+  // No Razorpay credentials exist in this environment, so what a browser can
+  // prove here is the honest degradation — and that the member app says
+  // something true rather than offering a button that opens an error.
+  section('Online payments');
+  await page.goto(`${BASE}/settings/payments`, { waitUntil: 'domcontentloaded' });
+  check(
+    'the online payments page opens',
+    (await page.getByRole('heading', { name: 'Online payments' }).count()) > 0,
+  );
+
+  const payText = await page.evaluate(() => document.body.innerText);
+  check(
+    'it says whose account the money lands in',
+    /your own Razorpay account/i.test(payText),
+  );
+  check(
+    'and that a phone cannot mark an invoice paid',
+    /confirms it to our server/i.test(payText),
+  );
+  check('nothing is connected yet', /Not connected/i.test(payText));
+
+  // The form refuses nonsense before it ever reaches Razorpay.
+  await page.fill('#keyId', 'my-api-key');
+  await page.fill('#keySecret', 'some-secret-value');
+  await page.fill('#webhookSecret', 'some-webhook-secret');
+  expectStatus(422, 'POST', '/api/v1/org/gateway');
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await page.waitForFunction(
+    () => /does not look like a Razorpay key id/i.test(document.body.innerText),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('a key id that is not one is refused with the reason', true);
+
+  // Credentials that look right but are not: refused by the verification
+  // read, and left switched off rather than saved as connected.
+  await page.fill('#keyId', 'rzp_test_FakeKeyForBrowser');
+  await page.fill('#keySecret', 'a_secret_that_will_not_work');
+  await page.fill('#webhookSecret', 'a_webhook_secret_for_this_run');
+  expectStatus(422, 'POST', '/api/v1/org/gateway');
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await page.waitForFunction(
+    () => /could not be saved|refused those credentials|Not connected/i.test(document.body.innerText),
+    undefined,
+    { timeout: 30_000 },
+  );
+  const afterConnect = await page.evaluate(() => document.body.innerText);
+  check(
+    'credentials Razorpay rejects are never saved as connected',
+    /Not connected/i.test(afterConnect),
+    afterConnect.split('\n').filter((l) => /connect|refus/i.test(l)).slice(0, 3).join(' | '),
+  );
+
+  const stillOff = await page.evaluate(async () => {
+    const r = await fetch('/api/v1/org/gateway');
+    const body = await r.json();
+    return { enabled: body.data?.isEnabled, verified: body.data?.isVerified };
+  });
+  check(
+    'and online payments stay switched off',
+    stillOff.enabled === false && stillOff.verified === false,
+    JSON.stringify(stillOff),
+  );
+
   // ------------------------------------------------------ the activity log ---
   // Everywhere else in this software claims that platform support "writes a
   // row the gym owner can see". This is the screen where that is settled.

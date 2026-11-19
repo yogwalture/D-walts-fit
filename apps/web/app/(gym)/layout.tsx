@@ -146,6 +146,12 @@ const NAVIGATION: NavSection[] = [
         built: true,
       },
       {
+        href: '/settings/payments',
+        label: 'Online payments',
+        permission: 'org.integration.read',
+        built: true,
+      },
+      {
         href: '/settings/billing',
         label: 'Subscription',
         permission: 'org.billing.read',
