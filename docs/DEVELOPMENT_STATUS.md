@@ -328,7 +328,7 @@ advanced integrations, native mobile, hardening.
 | --- | --- | --- |
 | Razorpay test credentials (key id, key secret) | Verifying online payments end to end — the code is built and stubbed-tested, but no real order has ever been created | Before Phase 7 can close |
 | Managed PostgreSQL provider decision and connection string | Any deployment | Before the first deploy |
-| GitHub repository | Version control, CI, Hostinger auto-deploy | Before the first deploy |
+| GitHub push access from this session | Pushing the 27 commits to `yogwalture/D-walts-fit`. The repository exists and is readable; this session's git proxy will not issue a credential for it because it is not in the session's authorised repository set. A complete bundle has been handed over instead, so the history can be pushed from your own machine | Now |
 | Hostinger Node.js app slot | Deployment — the account already runs 4 Node.js apps against a documented limit of 5 | Before the first deploy |
 | Production domain | SSL, final URLs | End of Phase 1 |
 | Phase 1 "definition of done" confirmation | Phase gate | Before Phase 1 closes |
@@ -834,3 +834,21 @@ tenant-scoped client, permission registry, role matrix, seeds and the tenant
 isolation suite. Verified against PostgreSQL 16.15: 40 of 40 isolation tests
 passing. Hostinger account audited — plan confirmed `hostinger_business` with
 15 websites, 4 of them Node.js apps.
+
+**21 November 2026 — The repository, and what "deploy" is still waiting on**
+Branch renamed `master` → `main`, because both the CI trigger and the deploy
+gate name `main` and neither would ever have fired. CI now scans for secrets
+before it does anything else, over tracked files and then over every commit —
+which needs `fetch-depth: 0`, since a shallow clone would let a key that was
+committed and later removed pass unseen. The deployment document gained a
+repository section: the remote, the one GitHub Actions secret
+(`DIRECT_DATABASE_URL`), and the `production` environment that must exist so
+a push to `main` cannot apply migrations to a live database unattended.
+
+The push itself did not happen. This session's git proxy refuses to issue a
+credential for `yogwalture/D-walts-fit` because the repository is not in the
+session's authorised set — read access works, write access does not, and the
+capability the proxy names for fixing that is not available here. So the
+history was handed over as a git bundle instead: 27 commits, every author and
+date intact, pushed from your own machine in three commands. Nothing has been
+deployed, and nothing has been overwritten.

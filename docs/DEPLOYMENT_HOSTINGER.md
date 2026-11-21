@@ -46,6 +46,35 @@ is also why 600,000 inodes stay free.
 
 ---
 
+## The repository
+
+| | |
+| --- | --- |
+| Remote | `https://github.com/yogwalture/D-walts-fit` |
+| Default branch | `main` |
+| CI | `.github/workflows/ci.yml` — secret scan, types, lint, isolation suite, full suite |
+| Deploy trigger | push to `main`, and only after CI is green |
+
+Secrets to set in **Settings → Secrets and variables → Actions** before the
+first push to `main`, or the deploy job fails on its first step:
+
+| Secret | What it is |
+| --- | --- |
+| `DIRECT_DATABASE_URL` | The owner connection, used by `prisma migrate deploy` and nothing else |
+
+Create a GitHub **environment** named `production` and require your own
+review on it. The deploy job is bound to that environment, so a push to
+`main` applies migrations to the production database only once a human has
+approved that run. Without the environment the job runs unattended, which is
+not what you want pointed at a live database.
+
+Everything else — the application's own environment variables — belongs in
+the Hostinger deploy configuration, not in GitHub and not in the repository.
+CI builds against a throwaway PostgreSQL service with throwaway secrets
+written in plain sight in the workflow file; they are deliberately worthless.
+
+---
+
 ## Platform constraints the application is built around
 
 | Constraint | Consequence |

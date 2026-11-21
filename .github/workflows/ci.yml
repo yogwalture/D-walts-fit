@@ -37,7 +37,11 @@ jobs:
       CRON_SECRET: ci-only-cron-secret
 
     steps:
+      # Full history: the secret scan below walks every commit, and a shallow
+      # clone would let a key that was committed and later removed pass.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
         with: { version: 10 }
@@ -48,6 +52,13 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      # Before anything else: a key committed by accident is the one failure
+      # that cannot be undone by a later commit.
+      - name: Secret scan — tracked files, then every commit
+        run: |
+          pnpm scan:secrets
+          pnpm scan:secrets:history
 
       # The roles matter as much as the schema: the application role must
       # not be able to bypass row-level security, and CI must prove it.
