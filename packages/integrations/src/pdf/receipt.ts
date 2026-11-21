@@ -1,5 +1,5 @@
 import PDFDocument from 'pdfkit';
-import { INVOICE_FONT_BOLD_BASE64, INVOICE_FONT_REGULAR_BASE64 } from './fonts';
+import { documentFonts } from './typeface';
 
 /**
  * The payment receipt.
@@ -8,18 +8,11 @@ import { INVOICE_FONT_BOLD_BASE64, INVOICE_FONT_REGULAR_BASE64 } from './fonts';
  * wallet, and it has one job: prove that this person handed over this amount
  * on this day, by this means, to this gym. Everything else is noise on it.
  *
- * Same engine and same inlined fonts as the invoice, for the same reasons:
+ * Same engine and same inlined font as the invoice, for the same reasons:
  * Hostinger has no Chrome, and pdfkit's built-in Helvetica has no rupee sign.
+ * That font covers Devanagari too, so a receipt made out to रवी कुलकर्णी is
+ * as readable as one made out to Ravi Kulkarni. See `./typeface`.
  */
-
-let regular: Buffer | null = null;
-let bold: Buffer | null = null;
-
-function fonts(): { regular: Buffer; bold: Buffer } {
-  regular ??= Buffer.from(INVOICE_FONT_REGULAR_BASE64, 'base64');
-  bold ??= Buffer.from(INVOICE_FONT_BOLD_BASE64, 'base64');
-  return { regular, bold };
-}
 
 export interface ReceiptPdfInput {
   receipt: {
@@ -100,7 +93,7 @@ const spokenMethod = (method: string): string =>
 export function renderReceiptPdf(input: ReceiptPdfInput): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
-      const { regular: regularFont, bold: boldFont } = fonts();
+      const { regular: regularFont, bold: boldFont } = documentFonts();
       const refunded = input.receipt.status === 'REFUNDED';
       const partlyRefunded = input.receipt.status === 'PARTIALLY_REFUNDED';
 

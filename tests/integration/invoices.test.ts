@@ -292,9 +292,11 @@ describe('the invoice PDF', () => {
   it('knows when a name would not render', () => {
     expect(hasUnsupportedScript('Ravi Kulkarni')).toBe(false);
     expect(hasUnsupportedScript('₹1,500.00 — paid')).toBe(false);
-    // pdfkit cannot shape Devanagari, so this must be detectable rather than
-    // silently printed as boxes.
-    expect(hasUnsupportedScript('रवी कुलकर्णी')).toBe(true);
+    // Devanagari IS covered now — see tests/integration/document-fonts.test.ts
+    // for why the opposite assertion used to be here.
+    expect(hasUnsupportedScript('रवी कुलकर्णी')).toBe(false);
+    // Tamil is not, and still has to be detectable rather than silently
+    // printed as boxes.
     expect(hasUnsupportedScript('Ravi', null, 'ரவி')).toBe(true);
   });
 
@@ -306,6 +308,33 @@ describe('the invoice PDF', () => {
     });
 
     expect(pdf.length).toBeGreaterThan(3000);
+  });
+
+  // The gym this is built for is in Chhatrapati Sambhajinagar, so a member
+  // whose name is written in Marathi is the normal case, not the exotic one.
+  // Set GYM_PDF_DUMP=/path to write the result out and look at it.
+  it('renders a member whose name is in Devanagari', async () => {
+    const document = await getInvoiceDocument(ctx, owner, invoiceId);
+    const pdf = await renderInvoicePdf({
+      ...document,
+      customer: { ...document.customer, name: 'रवी कुलकर्णी' },
+      supplier: {
+        ...document.supplier,
+        legalName: 'श्री गणेश व्यायामशाळा',
+        addressLines: ['छत्रपती संभाजीनगर, महाराष्ट्र ४३१००१'],
+      },
+    });
+
+    expect(pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+    expect(pdf.length).toBeGreaterThan(3000);
+    // An embedded TrueType subset, not a fallback to a base-14 font — which
+    // is what a missing glyph would quietly fall back to.
+    expect(pdf.toString('latin1')).toContain('FontFile2');
+
+    if (process.env.GYM_PDF_DUMP) {
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(process.env.GYM_PDF_DUMP, pdf);
+    }
   });
 });
 

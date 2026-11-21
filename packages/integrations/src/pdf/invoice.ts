@@ -1,5 +1,7 @@
 import PDFDocument from 'pdfkit';
-import { INVOICE_FONT_BOLD_BASE64, INVOICE_FONT_REGULAR_BASE64 } from './fonts';
+import { documentFonts, hasUnsupportedScript } from './typeface';
+
+export { hasUnsupportedScript };
 
 /**
  * The tax invoice PDF.
@@ -9,46 +11,20 @@ import { INVOICE_FONT_BOLD_BASE64, INVOICE_FONT_REGULAR_BASE64 } from './fonts';
  * HTML-to-PDF pipeline is not an option there. pdfkit is pure JavaScript with
  * no native dependencies and renders a page of this size in milliseconds.
  *
- * The fonts are DejaVu Sans, subsetted to the characters an invoice actually
- * prints — 30 KB instead of 1.4 MB — and inlined as base64 rather than read
- * from disk. The subset exists because the rupee sign (U+20B9) is absent from
- * pdfkit's built-in Helvetica: without an embedded font every amount on a GST
- * invoice renders as a hollow box. The inlining exists because reading them
- * from disk does not survive bundling, which a production build proved by
- * failing every download with ENOENT.
+ * The font is Noto Sans Devanagari with its Latin and Devanagari subsets
+ * merged, inlined as gzipped base64 rather than read from disk. An embedded
+ * font is needed at all because the rupee sign (U+20B9) is absent from
+ * pdfkit's built-in Helvetica, so without one every amount on a GST invoice
+ * renders as a hollow box. The inlining exists because reading fonts from
+ * disk does not survive bundling, which a production build proved by failing
+ * every download with ENOENT. See `./typeface`.
  *
- * KNOWN LIMITATION, stated plainly: pdfkit does not shape complex scripts, so
- * a member whose name is stored in Devanagari or another Indic script will not
- * render correctly here. `hasUnsupportedScript` below detects that case so a
- * caller can warn rather than hand someone a broken invoice.
+ * Devanagari renders properly, which the previous comment here denied: it
+ * claimed pdfkit could not shape complex scripts. pdfkit lays out through
+ * fontkit, which runs the Indic shaper — the font simply had no Devanagari
+ * glyphs. `hasUnsupportedScript` now reports the scripts still not covered,
+ * which is a claim about the font and can be tested.
  */
-
-let regular: Buffer | null = null;
-let bold: Buffer | null = null;
-
-function fonts(): { regular: Buffer; bold: Buffer } {
-  // Decoded once per process, not once per invoice.
-  regular ??= Buffer.from(INVOICE_FONT_REGULAR_BASE64, 'base64');
-  bold ??= Buffer.from(INVOICE_FONT_BOLD_BASE64, 'base64');
-  return { regular, bold };
-}
-
-/**
- * Whether any text would fall outside the embedded subset.
- *
- * The subset covers printable Latin, the rupee sign and a few typographic
- * marks. Anything else — Devanagari, Tamil, emoji — would render as a box, so
- * it is better to know before the document is handed to a member.
- */
-export function hasUnsupportedScript(...values: Array<string | null | undefined>): boolean {
-  // Written as escapes, not as the characters themselves: a literal
-  // non-breaking space and six kinds of dash and quotation mark are
-  // invisible in a source file, and this list decides whether an
-  // invoice renders a member's name or a row of boxes.
-  const allowed =
-    /^[\u0020-\u007E\u00A0\u00B7\u2013\u2014\u2018\u2019\u201C\u201D\u2022\u20B9\u2026]*$/;
-  return values.some((value) => value != null && !allowed.test(value));
-}
 
 export interface InvoicePdfInput {
   invoice: {
@@ -159,7 +135,7 @@ const spokenMethod = (method: string): string =>
 export function renderInvoicePdf(input: InvoicePdfInput): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
-      const { regular: regularFont, bold: boldFont } = fonts();
+      const { regular: regularFont, bold: boldFont } = documentFonts();
 
       const doc = new PDFDocument({
         size: 'A4',

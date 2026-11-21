@@ -296,7 +296,6 @@ Acting as Gym A, against Gym B's real record ids:
 
 | Item | Note |
 | --- | --- |
-| Devanagari and other Indic names on the PDF | pdfkit cannot shape complex scripts. `hasUnsupportedScript` detects the case so it can be reported rather than printed as boxes; a gym recording names in Marathi needs a different renderer |
 | Razorpay checkout in the browser | The server half is built and tested; the checkout flow needs real test credentials |
 | First deployment to Hostinger over HTTPS | Blocked: needs a database connection string and a GitHub repository |
 
@@ -401,6 +400,7 @@ Recorded because each one says something about where the bugs actually are.
 | Nested relation reads are not caught by the platform guard | Prisma extensions see the top-level model only | Row-level security still empties them, so the data does not leak — the guard just cannot explain why the result is empty. Platform reads select named commercial columns for that reason, and the limitation is stated in the code |
 | Platform-side usage counts come from the `BYPASSRLS` job role | Counting across tenants is legitimately cross-tenant, and the gym's own policies deny it | Narrowly bounded by rule and by code review: counts, and the account holder's own contact details. Never a member, a payment, a message or an attendance row |
 | A platform administrator who is also a gym owner is one account | Somebody will run their own gym on the product they sell | The two sets of powers never mix: platform keys grant nothing inside a tenant, and gym keys grant nothing platform-side. Both suites assert it |
+| Scripts other than Latin and Devanagari are still not covered | The embedded font is Noto Sans Devanagari, merged Latin + Devanagari. Tamil, Telugu, Kannada, Bengali, Gujarati, Urdu and emoji have no glyphs | `hasUnsupportedScript` reports them, and a test walks the BMP to keep that claim honest against the font. Adding a script means adding its range in `scripts/build-fonts.mjs` and regenerating |
 | WhatsApp has never sent a message | No Meta credentials yet. The plumbing is built and tested against a stubbed provider | A gym's connection is only switched on after Meta answers a real call with its own credentials; until then messages are held, never marked sent |
 | Template approval is recorded, not requested | Submitting a template to Meta needs the WhatsApp Business Management API and an approved app | A gym submits in Meta's dashboard and records the approved name here; the product never claims an approval Meta did not give |
 
@@ -886,3 +886,43 @@ and the suite says otherwise.
 Still not pushed and still not live. Both for the same two reasons as before:
 this session's git proxy will not issue a credential for the repository, and
 there is no production database to point any of this at yet.
+
+**21 November 2026 — A limitation that was not one, and a box nobody saw**
+The PDF renderer carried a comment headed "KNOWN LIMITATION, stated plainly:
+pdfkit does not shape complex scripts", and this document repeated it. It was
+wrong. pdfkit lays out through fontkit, which runs the Indic shaper; given a
+font with the glyphs it renders Devanagari correctly, reph and conjuncts and
+all. The font was DejaVu Sans, which has no Devanagari in it whatsoever. The
+problem was coverage, and it had been written down as a shaping problem, which
+is why it sat untouched for weeks as something that needed "a different
+renderer". It needed a different font.
+
+Worse: `hasUnsupportedScript`, named in this document as the mitigation — "so
+it can be reported rather than printed as boxes" — was exported and **called
+by nothing**. A gym in Chhatrapati Sambhajinagar recording a member as
+रवी कुलकर्णी would have been handed a receipt of hollow boxes, silently.
+
+So the font is now Noto Sans Devanagari with its Latin and Devanagari subsets
+merged into one file: one font covering both scripts, so none of the fifty-odd
+text calls across the two renderers has to know which script it is drawing.
+Gzipped and inlined, 131 KB for the pair.
+
+Then, rendering a real invoice to look at it turned up a bug older than any of
+this. The totals block prints `−` U+2212, the true minus sign, on the discount
+and payment rows. It was in neither the old font subset nor the allow-list, so
+**every invoice that recorded a payment has printed a hollow box next to the
+amount since the invoice shipped in Phase 2**. Nothing caught it: the allow-list
+was self-consistent, the font was self-consistent, and the character came from
+a template literal in between the two.
+
+Three tests now hold this down, each mutation-tested: the font's own cmap is
+parsed and checked for Devanagari consonants, matras, the virama, ळ and the
+digits; every codepoint the allow-list accepts must have a glyph in both
+weights, so the two cannot drift; and every non-ASCII character the renderer
+sources themselves contain must be one the font can draw, which is the check
+that would have caught the minus sign. 631 checks passing, up from 611.
+
+Not deployed, and not pushed. The push still needs one command run on the
+Mac — `cd ~/Downloads && bash push-to-github.command` — because the download
+stripped the file's executable bit and this session may not type into a
+terminal.
