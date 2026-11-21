@@ -852,3 +852,37 @@ capability the proxy names for fixing that is not available here. So the
 history was handed over as a git bundle instead: 27 commits, every author and
 date intact, pushed from your own machine in three commands. Nothing has been
 deployed, and nothing has been overwritten.
+
+**21 November 2026 — The trap a managed database would have set**
+Going live means moving off the database I built myself onto one a provider
+builds its own way, and that turned up a failure mode worth more than the
+deploy it was blocking.
+
+`BYPASSRLS` does not leak through role membership — a role that merely
+belongs to a `BYPASSRLS` role reads nothing. But it can `SET ROLE` to that
+role, and then it reads everything. Tested, not assumed: against PostgreSQL
+16, a member of a `BYPASSRLS` role returned 0 rows from a `FORCE ROW LEVEL
+SECURITY` table with a deny-all policy, and returned every row one
+`SET ROLE` later.
+
+Neon grants `neon_superuser`, which carries `BYPASSRLS`, to every role made
+through its console, API or CLI. Create `gym_app` that way and `rolbypassrls`
+on the role is still false, every policy is intact, the isolation suite
+passes — and the application is one statement from reading every gym in the
+database. The check that was already there asked what the role *is*. It
+needed to ask what the role can *become*.
+
+So: a new isolation test asserting the application role is a member of no
+`BYPASSRLS` or superuser role, and `pnpm preflight` — ten read-only checks to
+run against the real production database before the first deploy, covering
+role escalation, RLS enabled *and* forced, policies present, an actual
+zero-row read as the application's own role with no tenant in context,
+migrations applied and not rolled back, and TLS on the wire. Both were
+mutation-tested: granting `gym_app` membership in `gym_jobs` makes the test
+fail naming `gym_jobs`, and makes preflight exit 1. 41 isolation checks now,
+up from 40 — measured both ways round, because I had written 42 from memory
+and the suite says otherwise.
+
+Still not pushed and still not live. Both for the same two reasons as before:
+this session's git proxy will not issue a credential for the repository, and
+there is no production database to point any of this at yet.

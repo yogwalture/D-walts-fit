@@ -383,6 +383,34 @@ describe('RLS only: raw SQL with the extension bypassed', () => {
     expect(appRole!.rolbypassrls).toBe(false);
   });
 
+  // The check above is not enough on its own, and the gap is not theoretical.
+  //
+  // BYPASSRLS does not leak through role membership — a role that merely
+  // belongs to a BYPASSRLS role still sees nothing. But it can `SET ROLE` to
+  // that role, and then it sees everything. Verified against PostgreSQL 16:
+  // membership alone returned 0 rows from a FORCE-RLS table with a deny-all
+  // policy; one `SET ROLE` later the same session read every row.
+  //
+  // This is how a managed provider breaks tenant isolation without breaking
+  // a single policy. Neon grants `neon_superuser` — which carries BYPASSRLS —
+  // to every role created through its console, API or CLI. Create `gym_app`
+  // that way and `rolbypassrls` on the role itself is still false, so the
+  // assertion above passes, the policies are all present and correct, and the
+  // application is one statement away from reading every gym in the database.
+  //
+  // So the question is not what the role is, but what it can become.
+  it('the application role cannot become a role that bypasses RLS', async () => {
+    const escalations = await appRaw.$queryRawUnsafe<Array<{ rolname: string }>>(
+      `SELECT r.rolname
+         FROM pg_roles r
+        WHERE (r.rolbypassrls OR r.rolsuper)
+          AND r.rolname <> current_user
+          AND pg_has_role(current_user, r.oid, 'MEMBER')`,
+    );
+
+    expect(escalations.map((row) => row.rolname)).toEqual([]);
+  });
+
   it('every tenant table has RLS enabled AND forced', async () => {
     const rows = await jobs.$queryRawUnsafe<
       Array<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>

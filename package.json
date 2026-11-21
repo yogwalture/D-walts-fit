@@ -26,6 +26,7 @@
     "verify": "pnpm scan:secrets && pnpm typecheck && pnpm lint && pnpm test",
     "backup": "node scripts/backup.mjs",
     "backup:verify": "node scripts/backup.mjs --verify",
+    "preflight": "node scripts/preflight-db.mjs",
     "lint:fix": "eslint . --fix"
   },
   "devDependencies": {

@@ -96,6 +96,7 @@ written in plain sight in the workflow file; they are deliberately worthless.
 - [ ] Confirm the target domain is not serving an existing site —
       **nothing gets overwritten without explicit authorisation and a backup**
 - [ ] Confirm outbound HTTPS reaches the database host, Meta, Razorpay and Firebase
+- [ ] Run `pnpm preflight` against the production database and get ten green checks
 
 ---
 
@@ -117,6 +118,47 @@ Some managed providers do not allow `CREATEDB`. In that case set
 `shadowDatabaseUrl` in the datasource block and point it at a second empty
 database — Prisma needs one for drift detection in `migrate dev`.
 `migrate deploy`, which is what production uses, needs no shadow database.
+
+### Create the application's role with SQL, never in the provider's console
+
+This is the one setup mistake that breaks tenant isolation without breaking
+anything you can see.
+
+`BYPASSRLS` does not leak through role membership — a role that merely
+belongs to a `BYPASSRLS` role still reads nothing. But it can `SET ROLE` to
+that role, and then it reads everything. Verified against PostgreSQL 16: a
+member of a `BYPASSRLS` role returned 0 rows from a `FORCE ROW LEVEL
+SECURITY` table with a deny-all policy, and returned every row one
+`SET ROLE` later.
+
+Managed providers hand out that membership by default. Neon grants
+`neon_superuser` — which carries `BYPASSRLS` — to every role created through
+its console, its API or its CLI. Create `gym_app` that way and:
+
+- `rolbypassrls` on the role itself is still `false`
+- every policy is present and correct
+- the isolation suite passes
+- and the application is one statement away from reading every gym
+
+Create the three roles by running the SQL above over a `psql` connection.
+Roles created with plain `CREATE ROLE` get no provider role grant.
+
+Then prove it, against the real database, before anything is deployed:
+
+```bash
+pnpm preflight
+```
+
+Ten checks, read-only, nothing written. It asks what the application's role
+can *become*, not only what it is; that every tenant table has RLS enabled
+**and forced**; that no RLS table was left without a policy; that the
+application's role, with no organization in context, really does read zero
+rows; that migrations are all applied and none failed; and that the
+connection is encrypted, since member health declarations and staff salaries
+cross that link. It exits non-zero and says what to fix.
+
+Run it again after any change to roles or migrations. A provider that resets
+role grants during a plan change or a restore puts the trap back.
 
 Use the **pooled** connection string for `DATABASE_URL` and the **direct**
 one for `DIRECT_DATABASE_URL`. The row-level security context is set with
