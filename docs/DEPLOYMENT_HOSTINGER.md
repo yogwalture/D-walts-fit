@@ -60,7 +60,9 @@ first push to `main`, or the deploy job fails on its first step:
 
 | Secret | What it is |
 | --- | --- |
-| `DIRECT_DATABASE_URL` | The owner connection, used by `prisma migrate deploy` and nothing else |
+| `DATABASE_URL` | The application's own role, pooled. Preflight checks it; the app uses it |
+| `DIRECT_DATABASE_URL` | The owner connection, unpooled, used by `prisma migrate deploy` |
+| `JOBS_DATABASE_URL` | The cron and webhook role, the one with `BYPASSRLS` |
 
 Create a GitHub **environment** named `production` and require your own
 review on it. The deploy job is bound to that environment, so a push to
@@ -119,6 +121,34 @@ Some managed providers do not allow `CREATEDB`. In that case set
 database — Prisma needs one for drift detection in `migrate dev`.
 `migrate deploy`, which is what production uses, needs no shadow database.
 
+### The database this is pointed at
+
+| | |
+| --- | --- |
+| Provider | Neon, free plan |
+| Project | D'WALTS FIT (`broad-morning-34656315`), org WALTCORP INDUSTRIES |
+| Branch | `production` (`br-summer-morning-bixusi0z`) |
+| Region | AWS Asia Pacific 1, **Singapore** |
+| PostgreSQL | **18.7** |
+| Database | `neondb` |
+
+Two things to keep in view. The region is Singapore, not Mumbai: roughly 60-80
+ms from Maharashtra rather than 10-20. Fine for now, worth revisiting when the
+gym is live and staff are checking people in at seven in the morning — it means
+creating a new project in a Mumbai region and migrating, so decide before there
+is production data to move.
+
+And the server is PostgreSQL 18, where everything in this repository was built
+and tested against 16. Nothing in the schema is version-specific, but no
+release of this application has yet run a full suite against 18. The first
+deploy is the first time.
+
+Set up on 21 November 2026: the three roles created with SQL, `public` owned by
+`gym_owner`, and all three verified as holding no route to a role that bypasses
+RLS.
+
+---
+
 ### Create the application's role with SQL, never in the provider's console
 
 This is the one setup mistake that breaks tenant isolation without breaking
@@ -140,8 +170,18 @@ its console, its API or its CLI. Create `gym_app` that way and:
 - the isolation suite passes
 - and the application is one statement away from reading every gym
 
-Create the three roles by running the SQL above over a `psql` connection.
-Roles created with plain `CREATE ROLE` get no provider role grant.
+Create the three roles by running the SQL above over a `psql` connection, or
+in the provider's SQL editor. Roles created with plain `CREATE ROLE` get no
+provider role grant.
+
+On PostgreSQL 16 and later, `ALTER SCHEMA public OWNER TO gym_owner` fails with
+`must be able to SET ROLE "gym_owner"` until the creating role can assume it.
+Grant that first:
+
+```sql
+GRANT gym_owner TO <the provider's own owner role> WITH SET TRUE;
+ALTER SCHEMA public OWNER TO gym_owner;
+```
 
 Then prove it, against the real database, before anything is deployed:
 

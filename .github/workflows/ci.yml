@@ -94,13 +94,35 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
       - name: Apply migrations to production
         env:
           DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
-        run: |
-          corepack enable
-          pnpm install --frozen-lockfile
-          pnpm db:migrate:deploy
+        run: pnpm db:migrate:deploy
+
+      # The migrations are only half of it. A managed provider can hand back a
+      # database where every policy is correct and the application's role can
+      # still read every tenant — see scripts/preflight-db.mjs for how. This
+      # runs after the migrations, because it checks the schema they create,
+      # and before Hostinger serves anything, because a failure here means the
+      # isolation guarantee is not actually in force.
+      - name: Preflight the production database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          JOBS_DATABASE_URL: ${{ secrets.JOBS_DATABASE_URL }}
+        run: pnpm preflight
+
       - name: Note
         run: |
           echo "Hostinger rebuilds from this branch automatically."
