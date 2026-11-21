@@ -32,7 +32,7 @@ jobs:
       DATABASE_URL: postgresql://gym_app:ci@localhost:5432/gym_cloud?schema=public
       DIRECT_DATABASE_URL: postgresql://gym_owner:ci@localhost:5432/gym_cloud?schema=public
       JOBS_DATABASE_URL: postgresql://gym_jobs:ci@localhost:5432/gym_cloud?schema=public
-      ENCRYPTION_KEY: Y2ktb25seS1rZXktbm90LXVzZWQtZm9yLWFueXRoaW5nLXJlYWw=
+      ENCRYPTION_KEY: Y2ktb25seS1rZXktbm90LXJlYWwtMDEyMzQ1Njc4OSE=
       AUTH_SECRET: ci-only-auth-secret
       CRON_SECRET: ci-only-cron-secret
 
