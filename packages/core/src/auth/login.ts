@@ -43,7 +43,7 @@ const invalid = () =>
   new AppError('INVALID_CREDENTIALS', 'That email address or password is not correct.');
 
 export async function login(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   input: LoginRequest,
 ): Promise<LoginResult> {
@@ -165,7 +165,7 @@ export async function login(
 }
 
 async function recordAttempt(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   input: LoginRequest,
   succeeded: boolean,

@@ -87,8 +87,29 @@ const RULES = [
   },
 ];
 
-/** Files whose whole job is to show the shape of a secret without being one. */
-const ALLOWED_PATHS = [/^\.env\.example$/, /^docs\/.*\.md$/, /^scripts\/scan-secrets\.mjs$/];
+/**
+ * Files whose whole job is to show the shape of a secret without being one.
+ *
+ * Deliberately four exact paths rather than a pattern. The scanner's own
+ * test file has to contain a planted example of every rule or it cannot
+ * prove the rules work — and it shipped once in a state where it passed
+ * only while untracked, then failed the moment it was committed, which is
+ * how this exception came to be written.
+ *
+ * Nothing here holds a working credential: the examples are documentation
+ * values (AWS's own `AKIAIOSFODNN7EXAMPLE`, among others). Adding to this
+ * list is how a real secret eventually gets through, so a test asserts it
+ * stays this short.
+ */
+const ALLOWED_PATHS = [
+  /^\.env\.example$/,
+  /^docs\/.*\.md$/,
+  /^scripts\/scan-secrets\.mjs$/,
+  /^tests\/integration\/secret-scan\.test\.ts$/,
+];
+
+/** Exposed so the test can assert the exception list has not grown. */
+export const allowedPathCount = ALLOWED_PATHS.length;
 
 /** Binary and generated things there is no point reading. */
 const SKIP_PATHS = [

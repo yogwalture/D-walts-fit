@@ -81,7 +81,7 @@ export function readSpreadsheet(bytes: Buffer, filename = ''): SheetTable {
  * locales where the comma is a decimal separator.
  */
 export function readCsv(text: string): SheetTable {
-  const body = text.replace(/^﻿/, '');
+  const body = text.replace(/^\uFEFF/, '');
   if (!body.trim()) throw new SpreadsheetError('That file has no rows in it.');
 
   const delimiter = detectDelimiter(body);
@@ -205,7 +205,7 @@ function readXlsx(bytes: Buffer): SheetTable {
       if (column >= LIMITS.maxColumns) continue;
 
       const type = /\bt="([^"]+)"/.exec(attributes)?.[1] ?? 'n';
-      let value = '';
+      let value: string;
 
       if (type === 's') {
         // Shared string: the cell holds an index into the string table.

@@ -406,6 +406,9 @@ export async function getCharts(
     const planIds = planMix.map((row: any) => row.planId);
     const plans = planIds.length
       ? await tx.membershipPlan.findMany({
+        // Bounded: more than 200 membership plans for one gym is a data
+        // problem, and a truncated list beats a request that times out.
+        take: 200,
           where: { id: { in: planIds } },
           select: { id: true, name: true },
         })

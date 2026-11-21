@@ -30,6 +30,7 @@ import {
   AppError,
 } from '@gym/core';
 import { renderReceiptPdf } from '@gym/integrations';
+import { nextTestAddress } from '../support/addresses';
 
 const db = new PrismaClient({ datasources: { db: { url: process.env.JOBS_DATABASE_URL } } });
 const unique = () => Math.random().toString(36).slice(2, 8);
@@ -55,6 +56,7 @@ beforeAll(async () => {
     password: 'correct horse battery staple 47',
     planKey: 'PROFESSIONAL',
     acceptedTerms: true,
+    ipAddress: nextTestAddress(),
   });
   createdOrgIds.push(gym.organizationId);
   ctx = { organizationId: gym.organizationId, userId: gym.userId };

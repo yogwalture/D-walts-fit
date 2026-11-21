@@ -41,7 +41,7 @@ export interface CreatedSession {
  * and deliberately sits outside row-level security — see docs/SECURITY.md.
  */
 export async function createSession(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   input: {
     userId: string;
@@ -99,7 +99,7 @@ export async function createSession(
  * tenant is decided — never from a URL, header or request body.
  */
 export async function resolveSession(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   rawToken: string,
 ): Promise<{ actor: ActorContext; view: SessionView }> {
@@ -323,7 +323,7 @@ export async function resolveSession(
  * changes nothing, because the tenant is read from this row and nowhere else.
  */
 export async function switchOrganization(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   input: { sessionId: string; userId: string; organizationId: string },
 ): Promise<void> {

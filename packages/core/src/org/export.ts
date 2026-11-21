@@ -72,6 +72,14 @@ interface TableSpec {
   columns: string[];
   /** Ordered so a diff between two exports is readable. */
   orderBy?: Record<string, 'asc' | 'desc'>;
+  /**
+   * Narrows the rows, for the one table where the tenant client is more
+   * generous than this export should be: the exercise library is readable
+   * as the gym's own rows *plus* the platform's shared ones, and shipping
+   * twelve shared squats in a gym's export under the heading "exercises you
+   * added" would be a small lie.
+   */
+  where?: Record<string, unknown>;
 }
 
 const TABLES: TableSpec[] = [
@@ -438,6 +446,63 @@ const TABLES: TableSpec[] = [
     orderBy: { assessedOn: 'asc' },
   },
   {
+    name: 'workout-plans',
+    describes: 'Training plans your trainers wrote',
+    model: 'workoutPlan',
+    columns: [
+      'name', 'description', 'goal', 'difficulty', 'durationWeeks', 'daysPerWeek',
+      'isTemplate', 'isActive', 'createdByOrgUserId', 'createdAt', 'deletedAt',
+    ],
+    orderBy: { name: 'asc' },
+  },
+  {
+    name: 'workout-plan-days',
+    describes: 'The days inside each plan',
+    model: 'workoutPlanDay',
+    columns: ['workoutPlanId', 'dayIndex', 'label', 'focus', 'isRestDay', 'notes'],
+  },
+  {
+    name: 'workout-plan-exercises',
+    describes: 'The exercises inside each day, with sets, reps and your notes',
+    model: 'workoutPlanItem',
+    columns: [
+      'workoutPlanDayId', 'exerciseId', 'displayOrder', 'sets', 'reps',
+      'weightKg', 'restSeconds', 'durationSeconds', 'tempo', 'trainerNotes',
+    ],
+  },
+  {
+    name: 'workout-assignments',
+    describes: 'Which member followed which plan, and when',
+    model: 'memberWorkoutAssignment',
+    columns: [
+      'memberId', 'workoutPlanId', 'assignedByOrgUserId', 'startDate',
+      'endDate', 'status', 'notes', 'createdAt',
+    ],
+    orderBy: { startDate: 'asc' },
+  },
+  {
+    name: 'workout-logs',
+    describes: 'Every session your members logged: what they lifted, and how hard it felt',
+    model: 'workoutLog',
+    columns: [
+      'memberId', 'assignmentId', 'planItemId', 'exerciseId', 'performedOn',
+      'setsCompleted', 'repsCompleted', 'weightKg', 'durationSeconds',
+      'perceivedEffort', 'completed', 'memberNotes',
+    ],
+    orderBy: { performedOn: 'asc' },
+  },
+  {
+    name: 'exercises',
+    describes: 'Exercises you added to your own library',
+    model: 'exercise',
+    where: { organizationId: { not: null } },
+    columns: [
+      'name', 'muscleGroup', 'secondaryMuscles', 'equipment', 'difficulty',
+      'category', 'instructions', 'cautions', 'isActive', 'createdAt',
+    ],
+    orderBy: { name: 'asc' },
+  },
+  {
     name: 'activity-log',
     describes: 'Who changed what, including anything we did on your account',
     model: 'auditLog',
@@ -505,18 +570,6 @@ export const EXPORT_EXCLUSIONS: Record<string, string> = {
     'A derived view assembled from attendance, payments and memberships, all of which are exported directly.',
   ProgressPhoto:
     'Progress photographs. Images rather than rows, downloaded from the member record they belong to.',
-  WorkoutPlan:
-    'Training plans the gym built, which stay readable and editable in the product.',
-  WorkoutPlanDay:
-    'Part of a workout plan, exported with the plan rather than as a table of its own.',
-  WorkoutPlanItem:
-    'The individual exercises inside a workout plan day. Part of the plan, not a record in its own right.',
-  MemberWorkoutAssignment:
-    'Which plan a member is following, which appears in that member’s own export.',
-  WorkoutLog:
-    'A member’s own logged sets and reps, included in that member’s own export rather than the gym’s bulk one.',
-  Exercise:
-    'The exercise library, most of which is platform-provided content shared with every gym.',
   PayrollRun:
     'Payroll is not built yet. This entry exists so the guard test fails the day it is, rather than shipping an export that quietly omits wages.',
   PayrollItem:
@@ -560,7 +613,7 @@ interface MemberTableSpec {
   scopeBy: string;
 }
 
-const MEMBER_TABLES: MemberTableSpec[] = [] = [
+const MEMBER_TABLES: MemberTableSpec[] = [
   {
     name: 'my-details',
     model: 'member',
@@ -656,7 +709,7 @@ export async function exportManifest(
       tables.push({
         name: spec.name,
         describes: spec.describes,
-        rows: await delegate.count(),
+        rows: await delegate.count(spec.where ? { where: spec.where } : undefined),
       });
     }
 
@@ -705,6 +758,7 @@ async function* csvOf(
   for (;;) {
     const rows = await tx[spec.model].findMany({
       select: { id: true, ...select },
+      ...(spec.where ? { where: spec.where } : {}),
       take: pageSize,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       // Ordered by id so the cursor is stable; a column ordering would need
@@ -822,6 +876,10 @@ function readmeFor(manifest: ExportManifest): string {
     'Health declarations are left out of this bulk export and included in a',
     'member’s own export instead, because a medical note is the member’s',
     'before it is the gym’s.',
+    '',
+    'The exercise library here is the exercises you added yourself. The',
+    'shared library every gym on the system reads is not yours to take, and',
+    'the plans reference it by id.',
     '',
   );
 

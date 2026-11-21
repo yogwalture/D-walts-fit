@@ -48,7 +48,7 @@ export function redact(value: unknown, depth = 0): unknown {
 }
 
 export async function writeAudit(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   tx: any,
   input: AuditInput,
 ): Promise<void> {

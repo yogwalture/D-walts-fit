@@ -24,6 +24,7 @@ import {
   listSubscriptions,
   AppError,
 } from '@gym/core';
+import { nextTestAddress } from '../support/addresses';
 
 const db = new PrismaClient({ datasources: { db: { url: process.env.JOBS_DATABASE_URL } } });
 const unique = () => Math.random().toString(36).slice(2, 8);
@@ -47,6 +48,7 @@ async function gymOn(planKey: string) {
     password: 'correct horse battery staple 47',
     planKey: planKey as never,
     acceptedTerms: true,
+    ipAddress: nextTestAddress(),
   });
   createdOrgIds.push(created.organizationId);
 

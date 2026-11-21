@@ -119,6 +119,9 @@ export async function listTemplates(
 
   return withTenant(ctx, async (tx) => {
     const rows = await tx.notificationTemplate.findMany({
+      // Bounded: more than 200 message templates for one gym is a data
+      // problem, and a truncated list beats a request that times out.
+      take: 200,
       where: {
         ...(options.channel ? { channel: options.channel } : {}),
         ...(options.includeInactive ? {} : { isActive: true }),

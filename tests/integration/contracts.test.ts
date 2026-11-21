@@ -237,3 +237,60 @@ describe('cross-field rules', () => {
     ).toBe(false);
   });
 });
+
+// =========================================================================
+
+/**
+ * The lint rules have to be running.
+ *
+ * They were not. `packages/config/eslint.config.mjs` holds rules written to
+ * "fail the build rather than wait to be caught in review" — no unbounded
+ * `findMany`, no raw SQL built by interpolation, no raw Prisma client in
+ * application code — and nothing referenced that file. No package had a
+ * lint script that used it, `apps/web` ran `next lint` which drops into an
+ * interactive prompt when it finds no config, and `pnpm lint` therefore
+ * failed every time while reading as a pass.
+ *
+ * Wired up, it found 46 unbounded reads. This test is here so the wiring
+ * cannot come undone quietly again.
+ */
+describe('the lint rules are wired up', () => {
+  it('has a root config that loads the isolation rules', async () => {
+    const { readFileSync, existsSync } = await import('node:fs');
+
+    expect(existsSync('eslint.config.mjs'), 'a root ESLint config exists').toBe(true);
+
+    const root = readFileSync('eslint.config.mjs', 'utf8');
+    expect(root).toContain('packages/config/eslint.config.mjs');
+  });
+
+  it('still forbids the three things it was written to forbid', async () => {
+    const { readFileSync } = await import('node:fs');
+    const shared = readFileSync('packages/config/eslint.config.mjs', 'utf8');
+
+    expect(shared).toContain('findMany without take');
+    expect(shared).toContain('string interpolation');
+    expect(shared).toContain('no-restricted-imports');
+  });
+
+  it('runs clean, so a violation would be visible', async () => {
+    const { execFileSync } = await import('node:child_process');
+
+    // The whole repository, as `pnpm lint` runs it. A failure here is a
+    // real violation, not a configuration problem — the two tests above
+    // cover the configuration.
+    const result = (() => {
+      try {
+        return { ok: true, output: execFileSync('node_modules/.bin/eslint', ['.'], {
+          encoding: 'utf8',
+          maxBuffer: 16 * 1024 * 1024,
+        }) };
+      } catch (error) {
+        const failure = error as { stdout?: string; stderr?: string };
+        return { ok: false, output: `${failure.stdout ?? ''}${failure.stderr ?? ''}` };
+      }
+    })();
+
+    expect(result.ok, result.output.slice(-2000)).toBe(true);
+  }, 180_000);
+});

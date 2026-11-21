@@ -244,6 +244,21 @@ only when real credentials have been used and a real call has succeeded.
 | A formula in a cell is defused | A member named `=HYPERLINK(…)` is prefixed, so opening the file is not code execution on whoever opens it |
 | Taking an export is audited | A download of a whole member list is worth being able to see in the activity log, with who and when |
 | A member can take their own data | Their details, visits, payments, bookings, assessments and the full health declaration the gym's bulk export deliberately summarises — which is what India's DPDP Act gives them a right to |
+| Workout plans | A trainer writes a week — days, exercises, sets, reps, rest, notes — and assigns it to as many members as they like. The last area of the gym portal that had tables, permissions and a sidebar entry but no software |
+| A plan is a template until it is assigned | The same plan goes to forty members, and editing it changes what all forty do next session — which is what a trainer means by "I updated the beginner plan". The audit line says how many people were affected |
+| A member follows one plan at a time | Two is a member who does not know what to do today. Assigning a second ends the first and the screen says what it replaced, rather than switching somebody's training silently |
+| A log belongs to the member, not the plan | Days and items are replaced wholesale on an edit, so a careless cascade would delete a year of somebody's lifts because their trainer reordered a week. Verified by mutation |
+| The member's screen opens on the session to do now | The day they have done least recently, skipping rest days — a plan is a rotation, not a table of contents |
+| Every exercise carries what they lifted last time | That is the number somebody at a rack actually wants; "3 × 8" alone leaves them guessing at Tuesday's weight. The log form pre-fills with it, so beating it is one keystroke |
+| A whole day is logged in one request | Exercise by exercise is a dozen requests from a gym floor with bad signal, and half a session recorded when one fails. Re-logging the same day replaces it, so fixing a typo does not double the session |
+| Cautions follow the exercise to the member | "Skip this if your shoulder is sore" in the library and nowhere else is a caution nobody reads |
+| A plan with members on it cannot be retired | It names how many and says they would open the app to nothing |
+| The isolation lint rules actually run | They had never executed: nothing referenced the shared config, no package had a script that used it, and `apps/web` ran `next lint` — which prompts interactively with no config of its own, so `pnpm lint` failed every time and read as a pass |
+| Every list read is bounded | 46 unbounded `findMany` calls, each now capped at what that table can plausibly hold for one gym. On a host that cuts a request off at 120 seconds, an unbounded read of a year of attendance is the request that never returns |
+| A report that cannot be complete says so | Reports aggregate in JavaScript, so they cap the read **and** carry a `truncated` flag with a note telling the reader to narrow the dates. A total computed from the first 20,000 of 30,000 payments is a wrong number presented as a right one, and a gym would file it |
+| Truncation takes the rows that matter | Collections oldest-first so a partial report is a complete prefix of the period; outstanding dues oldest-first so the invoices most worth chasing are the ones that arrive |
+| The raw-SQL rule now matches the dangerous shape | It had flagged every `$queryRawUnsafe`, including the four parameterised `SELECT … FOR UPDATE` row locks that hold class capacity and stock — so the first person to need a lock would have silenced it wholesale. It matches interpolated template literals only, and a planted violation proves it still bites |
+| **Workout suite — 28 tests** | **Including that a member sees nothing of another member's training, and that the trainer's session count agrees with the member's** |
 | **— Phase 9 —** | |
 | No secret can reach a repository unnoticed | A scanner over what git tracks *and over everything it ever tracked*, since a key committed and deleted is still readable with `git show`. Wired into `pnpm verify`, and tested by planting each kind of secret and checking it is caught |
 | Gym registration is limited | It is public, creates a tenant with a dozen rows, and had no limit at all: one script could have filled the database on a shared host. Ten an hour per address, with a message a real gym owner can act on and no number for a script to tune against |
@@ -290,6 +305,12 @@ Acting as Gym A, against Gym B's real record ids:
 The sidebar lists only pages that exist. Every unbuilt destination carries
 `built: false` in `apps/web/app/(gym)/layout.tsx` and is hidden until its
 screen lands — a menu item that 404s teaches people not to trust the menu.
+
+As of 21 November there are none: Workouts was the last one, and the whole
+gym portal is now reachable from the sidebar. The mechanism stays, because
+the next unbuilt thing should be hidden rather than broken — but it is worth
+noting that a hidden entry is still a feature that does not exist, and
+`built: false` had quietly carried this one for weeks.
 
 ---
 
@@ -347,6 +368,12 @@ Recorded because each one says something about where the bugs actually are.
 | `withPlatform` promised in a comment what nothing enforced | Writing the console's gym detail view | Its doc comment said it "does NOT open a gym's operational data". Nothing checked: it returned the plain client, and a stray `tx.member.findMany()` would have been answered — by an empty array, because row-level security denies it silently. So the first version of the detail page reported **every gym as having zero members, zero branches and zero staff**, and looked entirely plausible doing it. The data layer now refuses those models by name, the refusal says which call was meant, and the counts come from the job role deliberately. |
 | The console's call list could silently omit the most urgent gym | Platform console suite | It read every trial and past-due subscription with a `take` and no ordering, then filtered to "ending within seven days" in memory. PostgreSQL returns rows in whatever order suits it, so with more gyms than the page size, **the gyms about to lapse could be exactly the ones dropped** — a sales list that quietly leaves people out is worse than no list, because nobody knows to check. It now narrows and orders in SQL before taking a page. |
 | The console claimed a reach the database does not permit | Platform console suite | `PLATFORM_MODELS` started as a hand-reasoned guess at "platform-owned tables" and included `OrgSetting`, which the generated RLS does not grant platform context. Every owner's phone number came back null, so **the call list had no numbers to call**. The list now mirrors the policies exactly and the contact details are read, one column, through the job role. |
+| `pnpm test` had never run the tests either | The same `pnpm verify` run | It ran `turbo run test`, which runs each package's own script. Only `@gym/db` had one, pointing at a directory with no test files in it — so turbo's `test` task failed while the suite I had been running by hand from the root passed. `pnpm test:isolation` was broken the same way, with `--dir` that never matched the config's include glob. Both are root commands now, and `pnpm verify` is checked by its exit code rather than by grepping its output. |
+| The test suite poisoned its own next run | Running `pnpm verify` four times in an afternoon | The registration throttle counts rows that live 24 hours, so a suite registering thirty gyms exhausted the ten-an-hour allowance for whichever address it reused — and the failure landed on a different test each time. Took three attempts to pin: a per-module counter collided between files, and a random address from a small range collided by chance. Each test gym now gets an address unique to its worker, and a global setup clears the counters earlier runs left in the documentation and benchmarking ranges. |
+| `pnpm lint` had never linted a line | Running `pnpm verify` for the first time | The isolation rules were written to fail the build; nothing referenced them. `apps/web` ran `next lint`, which with no config drops into an interactive prompt and exits non-zero — and I had read that as clean because I grepped its output for words like "error" instead of checking the exit status. Same mistake as the typecheck one, three days apart. Wired up, it found **46 unbounded `findMany` calls** and a `= [] = [` double assignment in code I wrote two days ago that typechecks and works by accident. |
+| The last sidebar entry had nothing behind it, and I had written a false claim about it | Auditing what `fitness.workout.*` actually did | Six tables since the first migration, five permission keys seeded and granted to trainers and managers, a nav entry marked `built: false` — and no service, no screen. Worse: the data export excluded workout plans two days ago with the reason that they "stay readable and editable in the product", a sentence I wrote about software that did not exist. Third instance of this pattern, and the first where the false claim was mine. |
+| The trainer's screen and the member's screen disagreed about a session | The browser run, after the unit suite passed | `listWorkoutAssignments` counted log rows, so a member who logged one six-exercise day showed up to the trainer as six sessions while their own app said one. Every unit test until then had logged a single exercise, so nothing caught it. Both count days now, and a test asserts the two agree. |
+| The secret scanner failed the moment it was committed | The suite going red on the next run | Its own test file has to contain a planted example of every rule or it cannot prove the rules work — so the scanner flagged its own fixtures. It had run clean before the commit only because the file was still untracked. The exception is one exact path, and a test now pins the list at four entries so it cannot quietly grow. |
 | Backups of this database did not work at all | Running `scripts/backup.mjs` for the first time | `pg_dump` is **refused outright**: every tenant table has FORCE ROW LEVEL SECURITY, which applies to the table's owner, so a dump with no organization in context fails with `query would be affected by row-level security policy for table "attendance"`. Anyone setting up a nightly dump with the owner credentials — the obvious thing — would have had a job failing every night, and found out on the day they needed it. Dumps now run as the BYPASSRLS role; the script names the problem when they do not. |
 | The rate limits could be bypassed by anybody who read the code | Isolating the e2e suites from each other's throttle | `clientIp()` took the **first** entry of `X-Forwarded-For`. A proxy appends the address it received from, so the first entry is whatever the caller put there — meaning a caller could choose their own throttle key and the login, registration and sign-in-code limits were all decoration. Read from the right now, with the number of trusted proxies configured. |
 | The backup verification was passing by not looking | Being suspicious of a number | It reported "14 populated tables restored" where there are 53. `n_live_tup` is an estimate maintained by autovacuum and reads 0 for a table that has rows but has not been analysed — so the comparison silently skipped exactly the tables most recently written to. Statistics are refreshed on both sides before comparing. |
@@ -380,6 +407,98 @@ Recorded because each one says something about where the bugs actually are.
 ---
 
 ## Changelog
+
+**21 November 2026 — Workouts, and lint rules that had never run**
+The sidebar had carried an entry marked unbuilt since the scaffold. Six
+tables for it had been in the schema since the first migration, five
+permission keys were seeded and granted, and nothing existed. Worse: two
+days ago I excluded workout plans from the data export on the grounds that
+they "stay readable and editable in the product" — a sentence about software
+that did not exist. Third time this pattern has turned up here, first time
+the false claim was mine.
+
+Built now. A trainer writes a week — days, exercises, sets, reps, and notes
+the member reads — and assigns it to as many members as they like. A plan is
+a template, so editing it changes what everybody on it does next session and
+the audit line says how many people that was. A member follows one at a
+time, because two is a member who does not know what to do today. Their
+screen opens on the day they have done least recently and every exercise
+carries what they lifted last time, which is the number somebody at a rack
+actually wants. The rule that would have lost a year of training history —
+logs survive their plan being rewritten underneath them — is verified by
+mutation.
+
+Then `pnpm verify` failed, and the reason was worse than the symptom.
+`packages/config/eslint.config.mjs` holds rules written to "fail the build
+rather than wait to be caught in review": no unbounded `findMany`, no raw
+SQL built by interpolation, no raw Prisma client in application code.
+Nothing referenced that file. No package had a lint script that used it, and
+`apps/web` ran `next lint`, which with no config of its own drops into an
+interactive prompt and exits non-zero. So `pnpm lint` had failed every time
+it ran, and I had read it as passing because I grepped its output for words
+instead of checking the exit status — the same mistake as the typecheck one,
+three days earlier.
+
+Wired up, it found 46 unbounded reads. Each is capped now at what that table
+can plausibly hold for one gym, which on a host that cuts a request off at
+120 seconds is the difference between a slow report and one that never
+returns. The four report aggregations needed more than a cap: a total
+computed from the first 20,000 of 30,000 payments is a wrong number
+presented as a right one, so they cap the read and carry a flag saying the
+figures are partial and the dates should be narrowed. It also found a `= []
+= [` double assignment in code I wrote two days ago, which typechecks and
+works by accident.
+
+One rule was itself wrong: it flagged every `$queryRawUnsafe`, including the
+four parameterised `SELECT … FOR UPDATE` locks that hold class capacity and
+stock under concurrent writes. The first person to need a row lock would
+have switched the rule off. It matches interpolated template literals only
+now, and a planted violation proves it still catches the real thing. 1,159
+checks passing: 611 tests, 285 HTTP checks and 263 browser checks — and
+`pnpm verify` now exits 0, twice in a row, which is a thing it had never
+done.
+
+
+**21 November 2026 — Workouts, and a claim I had made about them**
+The sidebar had carried an entry marked unbuilt since the scaffold. Six
+tables for it had been in the schema since the first migration, five
+permission keys were seeded and granted to trainers and managers, and
+nothing existed — no service, no screen. Worse than nothing: two days ago I
+excluded workout plans from the data export on the grounds that they "stay
+readable and editable in the product", which was a sentence about software
+that did not exist. Third time this pattern has turned up in this codebase,
+and the first time the false claim was mine.
+
+It is built. A trainer writes a week — days, exercises, sets, reps, rest,
+and notes the member will read — and assigns it to as many members as they
+like. A plan is a template, so editing it changes what everybody on it does
+next session, and the audit line says how many people that was. A member
+follows one plan at a time, because two is a member who does not know what
+to do today; assigning a second ends the first and the screen says what it
+replaced.
+
+The member's side opens on the day they have done least recently, skipping
+rest days, because a plan is a rotation rather than a table of contents. Every
+exercise carries what they lifted last time and the log form pre-fills with
+it: that is the number somebody standing at a rack actually wants, and it
+makes beating it one keystroke. A whole day is logged in one request, and
+re-logging a day replaces it, so correcting a typo does not double the
+session.
+
+The load-bearing rule — a member's logs survive their plan being rewritten
+underneath them — is verified by mutation: days and items are replaced
+wholesale on an edit, so a careless cascade would delete a year of somebody's
+lifts because their trainer reordered a week.
+
+Two bugs found by the verification layers rather than by reading. The
+trainer's screen counted log rows where the member's screen counted days, so
+one six-exercise session showed up as six — every unit test until then had
+logged a single exercise, and the browser run is what noticed. And the
+secret scanner failed the moment it was committed, because its own fixtures
+trip every rule it has; it had run clean beforehand only because the file was
+still untracked. 1,156 checks passing: 608 tests, 285 HTTP checks and 263
+browser checks.
+
 
 **19 November 2026 — Hardening, and a backup that did not work**
 Four things, and the second one is the one that mattered.

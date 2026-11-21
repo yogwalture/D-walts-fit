@@ -12,6 +12,9 @@ export default async function NewMemberPage() {
 
   const branches = await withTenant(ctx, (tx) =>
     tx.branch.findMany({
+      // Bounded: more than 100 branches for one gym is a data
+      // problem, and a truncated list beats a request that times out.
+      take: 100,
       where: { deletedAt: null, isActive: true },
       select: { id: true, name: true },
       orderBy: { name: 'asc' },

@@ -31,6 +31,7 @@ import {
   resolvePermissions,
   AppError,
 } from '@gym/core';
+import { nextTestAddress } from '../support/addresses';
 
 const db = new PrismaClient({ datasources: { db: { url: process.env.JOBS_DATABASE_URL } } });
 const unique = () => Math.random().toString(36).slice(2, 8);
@@ -65,6 +66,7 @@ async function gymWithSomeHistory(name: string): Promise<Gym> {
     password: 'correct horse battery staple 47',
     planKey: 'GROWTH' as never,
     acceptedTerms: true,
+    ipAddress: nextTestAddress(),
   });
   createdOrgIds.push(created.organizationId);
 
@@ -332,6 +334,45 @@ describe('a gym taking its data out', () => {
 });
 
 // =========================================================================
+
+  /**
+   * These six tables were excluded two days ago on the grounds that workout
+   * plans "stay readable and editable in the product" — a sentence written
+   * about software that did not exist. They are a gym's own work and they
+   * belong in their export.
+   */
+  it('carries the gym’s training plans and every session logged against them', async () => {
+    const gym = await gymWithSomeHistory('Trained');
+    const { files, manifest } = await gymExportFiles(gym.ctx, gym.permissions);
+
+    const names = manifest.tables.map((table) => table.name);
+    expect(names).toContain('workout-plans');
+    expect(names).toContain('workout-plan-days');
+    expect(names).toContain('workout-plan-exercises');
+    expect(names).toContain('workout-assignments');
+    expect(names).toContain('workout-logs');
+    expect(names).toContain('exercises');
+
+    const logs = files.find((file) => file.name === 'workout-logs.csv')!;
+    const text = await collect(logs.contents);
+    // Header present even with no rows, so whoever imports it sees the shape.
+    expect(text).toContain('"performedOn"');
+    expect(text).toContain('"weightKg"');
+  });
+
+  it('does not pass off the shared exercise library as the gym’s own', async () => {
+    const gym = await gymWithSomeHistory('Library Honesty');
+
+    const shared = await db.exercise.count({ where: { organizationId: null } });
+    expect(shared, 'the shared library is seeded').toBeGreaterThan(1);
+
+    const { files } = await gymExportFiles(gym.ctx, gym.permissions);
+    const text = await collect(files.find((file) => file.name === 'exercises.csv')!.contents);
+
+    // Header only: this gym has added none of its own, and the twelve shared
+    // ones belong to the platform.
+    expect(text.trim().split('\r\n')).toHaveLength(1);
+  });
 
 describe('a gym that has stopped paying', () => {
   /**

@@ -287,7 +287,7 @@ export async function listLeads(
 
     return {
       total,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       rows: rows.map((row: any) => ({
         id: row.id,
         fullName: row.fullName,
@@ -754,10 +754,10 @@ export async function getPipeline(
     const concluded = converted + lost;
 
     return {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       byStatus: byStatus.map((row: any) => ({ status: row.status, count: row._count })),
       bySource: bySource
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         .map((row: any) => ({
           label: String(row.source).toLowerCase().replace(/_/g, ' '),
           value: row._count,

@@ -1304,6 +1304,62 @@ else
   printf '  - housekeeping run skipped (set CRON_SECRET to cover it)\n'
 fi
 
+# ---------------------------------------------------------------- workouts ---
+#
+# Six tables, five permission keys and a sidebar entry had existed since the
+# scaffold with nothing behind them.
+printf '\nworkouts\n'
+
+body=$(curl -s -b "$JAR" "$BASE/api/v1/fitness/exercises?limit=5")
+has "the exercise library reads back"        "$body" '"muscleGroup"'
+has "including the platform's shared entries" "$body" '"isOwn":false'
+
+code=$(curl -s -b "$JAR" -o /tmp/e2e.workouts -w '%{http_code}' "$BASE/fitness/workout-plans")
+check "the workouts page loads" "200" "$code"
+has "and explains what a plan is for" "$(cat /tmp/e2e.workouts)" "assigns to as many members"
+
+# Build a plan through the API, exactly as the builder screen does.
+EX1=$(curl -s -b "$JAR" "$BASE/api/v1/fitness/exercises?limit=2" \
+  | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+[ -n "$EX1" ] && ok "an exercise id is available to build with" \
+  || bad "an exercise id is available to build with" "an id" "nothing"
+
+body=$(curl -s -b "$JAR" -X POST "$BASE/api/v1/fitness/workouts" \
+  -H 'content-type: application/json' \
+  -d "{\"name\":\"Smoke plan $STAMP\",\"goal\":\"Get started\",\"durationWeeks\":4,
+       \"days\":[{\"label\":\"Push\",\"items\":[{\"exerciseId\":\"$EX1\",\"sets\":3,\"reps\":\"8-10\"}]},
+                {\"label\":\"Rest\",\"isRestDay\":\"true\",\"items\":[]}]}")
+has "a plan can be written" "$body" '"id"'
+PLAN=$(printf '%s' "$body" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+body=$(curl -s -b "$JAR" -X POST "$BASE/api/v1/fitness/workouts" \
+  -H 'content-type: application/json' \
+  -d "{\"name\":\"Half written\",\"days\":[{\"label\":\"Legs\",\"items\":[]}]}")
+has "a day with no exercises is refused, by name" "$body" "Legs"
+
+body=$(curl -s -b "$JAR" "$BASE/api/v1/fitness/workouts/$PLAN")
+has "the plan reads back with its days"  "$body" '"Push"'
+has "and the rest day stays a rest day"  "$body" '"isRestDay":true'
+
+# Put the member imported earlier on it.
+MEMBER=$(curl -s -b "$JAR" "$BASE/api/v1/members?pageSize=1" \
+  | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+body=$(curl -s -b "$JAR" -X POST "$BASE/api/v1/fitness/assignments" \
+  -H 'content-type: application/json' \
+  -d "{\"action\":\"assign\",\"memberId\":\"$MEMBER\",\"planId\":\"$PLAN\"}")
+has "a member can be put on it" "$body" '"id"'
+
+body=$(curl -s -b "$JAR" "$BASE/api/v1/fitness/workouts")
+has "and the plan now counts them" "$body" '"activeMembers":1'
+
+body=$(curl -s -b "$JAR" -X DELETE "$BASE/api/v1/fitness/workouts/$PLAN")
+has "a plan with members on it cannot be retired" "$body" "still on this plan"
+
+# And the export carries it, which it did not until workouts existed.
+body=$(curl -s -b "$JAR" "$BASE/api/v1/org/export")
+has "the export lists the training plans" "$body" '"workout-plans"'
+has "and every session logged against them" "$body" '"workout-logs"'
+
 # ----------------------------------------------------------------- logout ---
 printf '\nlogout\n'
 

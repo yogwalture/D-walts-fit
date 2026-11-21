@@ -32,6 +32,7 @@ import {
   redact,
   AppError,
 } from '@gym/core';
+import { nextTestAddress } from '../support/addresses';
 
 /** Fixture setup and teardown: the job role, which may cross tenants. */
 const db = new PrismaClient({ datasources: { db: { url: process.env.JOBS_DATABASE_URL } } });
@@ -195,6 +196,7 @@ describe('gym registration', () => {
         password: STRONG_PASSWORD,
         planKey: 'STARTER',
         acceptedTerms: true,
+    ipAddress: nextTestAddress(),
       }),
     ).rejects.toThrow(AppError);
   });
@@ -210,6 +212,7 @@ describe('gym registration', () => {
         password: 'short',
         planKey: 'STARTER',
         acceptedTerms: true,
+    ipAddress: nextTestAddress(),
       }),
     ).rejects.toThrow(AppError);
 
@@ -271,6 +274,7 @@ describe('login', () => {
       password: STRONG_PASSWORD,
       planKey: 'STARTER',
       acceptedTerms: true,
+    ipAddress: nextTestAddress(),
     });
 
     for (let i = 0; i < 8; i += 1) {

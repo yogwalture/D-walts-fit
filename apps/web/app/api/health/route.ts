@@ -9,14 +9,12 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET() {
   const startedAt = Date.now();
-  let database: 'up' | 'down' = 'down';
 
-  try {
-    await basePrismaForAuth().$queryRaw`SELECT 1`;
-    database = 'up';
-  } catch {
-    database = 'down';
-  }
+  const database: 'up' | 'down' = await basePrismaForAuth()
+    .$queryRaw`SELECT 1`.then(
+      () => 'up' as const,
+      () => 'down' as const,
+    );
 
   const body = {
     status: database === 'up' ? 'ok' : 'degraded',

@@ -48,3 +48,4 @@ export * from './portal/service';
 export * from './org/export';
 export * from './shared/throttle';
 export * from './shared/housekeeping';
+export * from './fitness/service';

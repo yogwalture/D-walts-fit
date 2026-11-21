@@ -11,10 +11,10 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
-    "lint": "turbo run lint",
+    "lint": "eslint .",
     "typecheck": "turbo run typecheck",
-    "test": "turbo run test",
-    "test:isolation": "pnpm --filter @gym/db test:isolation",
+    "test": "vitest run",
+    "test:isolation": "vitest run tests/isolation",
     "db:generate": "pnpm --filter @gym/db generate",
     "db:migrate": "pnpm --filter @gym/db migrate",
     "db:migrate:deploy": "pnpm --filter @gym/db migrate:deploy",
@@ -25,15 +25,19 @@
     "scan:secrets:history": "node scripts/scan-secrets.mjs --history",
     "verify": "pnpm scan:secrets && pnpm typecheck && pnpm lint && pnpm test",
     "backup": "node scripts/backup.mjs",
-    "backup:verify": "node scripts/backup.mjs --verify"
+    "backup:verify": "node scripts/backup.mjs --verify",
+    "lint:fix": "eslint . --fix"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.10.2",
     "@types/yazl": "^3.3.1",
     "dotenv": "^16.4.7",
+    "eslint": "^10.15.0",
     "tsx": "^4.19.2",
     "turbo": "^2.3.3",
     "typescript": "^5.7.2",
+    "typescript-eslint": "^8.73.0",
     "vitest": "^2.1.8"
   },
   "dependencies": {

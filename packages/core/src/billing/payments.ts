@@ -211,7 +211,7 @@ export async function recordPayment(
  * and a double-credited membership is worse than a missed one.
  */
 export async function applyVerifiedGatewayPayment(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   input: {
     organizationId: string;
@@ -347,7 +347,7 @@ export async function applyVerifiedGatewayPayment(
 }
 
 export async function markGatewayPaymentFailed(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   input: { razorpayOrderId: string; reason?: string },
 ): Promise<void> {

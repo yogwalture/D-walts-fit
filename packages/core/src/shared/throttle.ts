@@ -35,7 +35,7 @@ export interface ThrottleRule {
  * allowance every time they are turned away, and the limit never bites.
  */
 export async function throttle(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   rule: ThrottleRule,
 ): Promise<void> {
@@ -62,7 +62,7 @@ export async function throttle(
  * somebody before it refuses them.
  */
 export async function throttleRemaining(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   rule: Omit<ThrottleRule, 'message'>,
 ): Promise<number> {
@@ -84,7 +84,7 @@ export async function throttleRemaining(
  * minutes after they are written.
  */
 export async function purgeThrottleHits(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   olderThanHours = 24,
 ): Promise<number> {

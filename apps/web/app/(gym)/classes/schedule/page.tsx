@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { listClasses, listClassTypes, listTrainers, businessDayIso } from '@gym/core';
 import { requireActor, holds, planLock } from '@/lib/current-session';
 import { FeatureLocked } from '@/components/plan-gate';
-import { Badge, Card, EmptyState, PageHeader, StatTile } from '@/components/ui';
+import { Card, EmptyState, PageHeader, StatTile } from '@/components/ui';
 import { DayPicker } from './day-picker';
 import { SchedulePanel } from './schedule-panel';
 import { ClassList } from './class-list';

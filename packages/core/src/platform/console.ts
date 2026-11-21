@@ -692,6 +692,8 @@ async function contactPhonesFor(organizationIds: string[]): Promise<Map<string, 
   const rows = await getJobsClient().orgSetting.findMany({
     where: { organizationId: { in: organizationIds } },
     select: { organizationId: true, contactPhone: true },
+    // Bounded by the ids handed in, which come from an already-capped read.
+    take: organizationIds.length,
   });
 
   return new Map(

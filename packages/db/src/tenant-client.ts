@@ -118,7 +118,7 @@ export function tenantExtension(ctx: TenantContext) {
     name: 'tenant-isolation',
     query: {
       $allModels: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         async $allOperations({ model, operation, args, query }: any) {
           const config = TENANT_MODELS.get(model);
           if (!config || AUTH_MODELS.has(model)) return query(args);
@@ -272,7 +272,7 @@ export function platformExtension() {
     name: 'platform-scope',
     query: {
       $allModels: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         async $allOperations({ model, operation, args, query }: any) {
           if (!TENANT_MODELS.has(model) || PLATFORM_MODELS.has(model)) {
             return query(args);

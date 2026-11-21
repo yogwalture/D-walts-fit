@@ -17,8 +17,6 @@
     "reset": "prisma migrate reset --force",
     "seed": "tsx prisma/seed.ts",
     "studio": "prisma studio",
-    "test": "vitest run",
-    "test:isolation": "vitest run --dir ../../tests/isolation",
     "typecheck": "tsc --noEmit",
     "platform:admin": "node scripts/platform-admin.mjs"
   },

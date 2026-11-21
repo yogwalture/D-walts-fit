@@ -42,21 +42,53 @@ export default [
             'use the paginate() helper in @gym/core.',
         },
         {
-          selector: "MemberExpression[property.name='$queryRawUnsafe']",
+          /**
+           * Raw SQL whose text is built by substitution.
+           *
+           * `$queryRawUnsafe` itself is not the problem and cannot be
+           * avoided: `SELECT … FOR UPDATE` is how class capacity and stock
+           * are held under concurrent writes, and Prisma's typed API cannot
+           * express it. Those calls pass `$1`, `$2` and let the driver bind
+           * the values, which is parameterised and safe.
+           *
+           * What is never safe is a template literal with an expression in
+           * it, because then the value becomes part of the statement. So
+           * the rule matches that shape and nothing else — the first
+           * version matched every `$queryRawUnsafe` and would have been
+           * silenced wholesale the first time somebody needed a row lock.
+           */
+          selector:
+            "CallExpression[callee.property.name='$queryRawUnsafe'] > TemplateLiteral:has(TemplateLiteral > *.expressions)",
           message:
-            'Raw SQL with string interpolation. Use $queryRaw with a tagged template so ' +
-            'values are bound as parameters.',
+            'Raw SQL built by string interpolation: the value becomes part of the ' +
+            'statement. Pass it as $1, $2 and let the driver bind it, or use $queryRaw ' +
+            'with a tagged template.',
+        },
+        {
+          // The same shape, one level out: `$executeRawUnsafe`.
+          selector:
+            "CallExpression[callee.property.name='$executeRawUnsafe'] > TemplateLiteral:has(TemplateLiteral > *.expressions)",
+          message:
+            'Raw SQL built by string interpolation. Pass values as $1, $2 so the driver ' +
+            'binds them.',
         },
       ],
 
       'no-console': ['warn', { allow: ['warn', 'error'] }],
-      eqeqeq: ['error', 'always'],
+      // `== null` is the idiomatic test for "null or undefined" and reads
+      // better than spelling both out. Every other loose comparison is an
+      // error.
+      eqeqeq: ['error', 'always', { null: 'ignore' }],
     },
   },
   {
     // The isolation suite exists precisely to run the queries the rules above
     // forbid elsewhere.
-    files: ['tests/**/*.ts', 'packages/db/**/*.ts'],
+    // Also .mjs: the operator scripts in packages/db/scripts connect as the
+    // owner on purpose, and the first version of this exemption matched only
+    // TypeScript — so `platform-admin.mjs` was told to use withTenant(),
+    // which is the one thing it cannot do.
+    files: ['tests/**/*.ts', 'tests/**/*.mjs', 'packages/db/**/*.ts', 'packages/db/**/*.mjs', 'scripts/**/*.mjs'],
     rules: {
       'no-restricted-imports': 'off',
       'no-restricted-syntax': 'off',

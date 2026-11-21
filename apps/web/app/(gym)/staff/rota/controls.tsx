@@ -108,7 +108,6 @@ export function MarkRow({
 
 export function RotaControls({
   date,
-  canMark,
   canRota,
   canApprove,
   staff,
@@ -116,7 +115,6 @@ export function RotaControls({
   shifts,
 }: {
   date: string;
-  canMark: boolean;
   canRota: boolean;
   canApprove: boolean;
   staff: Array<{ id: string; name: string }>;

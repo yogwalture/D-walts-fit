@@ -46,6 +46,7 @@ import {
   AppError,
 } from '@gym/core';
 import { toWhatsappNumber } from '@gym/integrations';
+import { nextTestAddress } from '../support/addresses';
 
 const db = new PrismaClient({ datasources: { db: { url: process.env.JOBS_DATABASE_URL } } });
 const unique = () => Math.random().toString(36).slice(2, 8);
@@ -54,7 +55,7 @@ let gym: Awaited<ReturnType<typeof registerGym>>;
 let ctx: { organizationId: string; userId: string };
 let owner: Awaited<ReturnType<typeof resolveSession>>['actor']['permissions'];
 let approvedTemplateId: string;
-let memberIds: string[] = [];
+const memberIds: string[] = [];
 
 const createdOrgIds: string[] = [];
 const createdEmails: string[] = [];
@@ -73,6 +74,7 @@ beforeAll(async () => {
     password: 'correct horse battery staple 47',
     planKey: 'PROFESSIONAL',
     acceptedTerms: true,
+    ipAddress: nextTestAddress(),
   });
   createdOrgIds.push(gym.organizationId);
   ctx = { organizationId: gym.organizationId, userId: gym.userId };
@@ -679,6 +681,7 @@ describe('expiry reminders', () => {
       password: 'correct horse battery staple 47',
       planKey: 'PROFESSIONAL',
       acceptedTerms: true,
+    ipAddress: nextTestAddress(),
     });
     createdOrgIds.push(bare.organizationId);
 
@@ -766,6 +769,7 @@ describe('one gym’s messages are not another’s', () => {
       password: 'correct horse battery staple 47',
       planKey: 'PROFESSIONAL',
       acceptedTerms: true,
+    ipAddress: nextTestAddress(),
     });
     createdOrgIds.push(other.organizationId);
 

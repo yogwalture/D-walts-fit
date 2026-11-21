@@ -50,6 +50,9 @@ export async function listExpenseCategories(
 
   return withTenant(ctx, async (tx) => {
     const existing = await tx.expenseCategory.findMany({
+      // Bounded: more than 200 expense categories for one gym is a data
+      // problem, and a truncated list beats a request that times out.
+      take: 200,
       where: { isActive: true },
       orderBy: { name: 'asc' },
       select: { id: true, name: true },
@@ -66,6 +69,9 @@ export async function listExpenseCategories(
     });
 
     return tx.expenseCategory.findMany({
+      // Bounded: more than 200 expense categories for one gym is a data
+      // problem, and a truncated list beats a request that times out.
+      take: 200,
       where: { isActive: true },
       orderBy: { name: 'asc' },
       select: { id: true, name: true },
@@ -263,7 +269,7 @@ export async function listExpenses(
         tax: money(sums._sum?.taxAmount),
         grand: money(sums._sum?.totalAmount),
       },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       rows: rows.map((row: any) => ({
         id: row.id,
         title: row.title,
@@ -313,6 +319,9 @@ export async function expensesByCategory(
     const categories =
       ids.length > 0
         ? await tx.expenseCategory.findMany({
+          // Bounded: more than 200 expense categories for one gym is a data
+          // problem, and a truncated list beats a request that times out.
+          take: 200,
             where: { id: { in: ids } },
             select: { id: true, name: true },
           })
@@ -320,7 +329,7 @@ export async function expensesByCategory(
     const nameById = new Map(categories.map((c) => [c.id, c.name]));
 
     return grouped
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       .map((row: any) => ({
         label: row.categoryId ? (nameById.get(row.categoryId) ?? 'Uncategorised') : 'Uncategorised',
         value: Number(row._sum?.totalAmount ?? 0),

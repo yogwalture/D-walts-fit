@@ -367,12 +367,22 @@ export async function listPendingInvitations(
     ...new Set(tokens.map((t) => t.createdByUserId).filter(Boolean) as string[]),
   ];
 
+  // Both bounded by the id lists above, which come from the capped read of
+  // pending invitations.
   const [roles, users] = await Promise.all([
     roleIds.length > 0
-      ? db.role.findMany({ where: { id: { in: roleIds } }, select: { id: true, name: true } })
+      ? db.role.findMany({
+          where: { id: { in: roleIds } },
+          select: { id: true, name: true },
+          take: roleIds.length,
+        })
       : Promise.resolve([]),
     userIds.length > 0
-      ? db.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true } })
+      ? db.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, fullName: true },
+          take: userIds.length,
+        })
       : Promise.resolve([]),
   ]);
 

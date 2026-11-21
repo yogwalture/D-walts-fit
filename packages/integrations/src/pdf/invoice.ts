@@ -41,7 +41,12 @@ function fonts(): { regular: Buffer; bold: Buffer } {
  * it is better to know before the document is handed to a member.
  */
 export function hasUnsupportedScript(...values: Array<string | null | undefined>): boolean {
-  const allowed = /^[ -~ ·–—‘’“”•₹…]*$/;
+  // Written as escapes, not as the characters themselves: a literal
+  // non-breaking space and six kinds of dash and quotation mark are
+  // invisible in a source file, and this list decides whether an
+  // invoice renders a member's name or a row of boxes.
+  const allowed =
+    /^[\u0020-\u007E\u00A0\u00B7\u2013\u2014\u2018\u2019\u201C\u201D\u2022\u20B9\u2026]*$/;
   return values.some((value) => value != null && !allowed.test(value));
 }
 

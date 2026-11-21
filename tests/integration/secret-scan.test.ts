@@ -161,6 +161,46 @@ describe('what the scanner allows', () => {
   });
 });
 
+describe('the exception list', () => {
+  /**
+   * This test exists because of a mistake in the commit that added the
+   * scanner. Its own fixtures trip every rule — they have to — so the
+   * scanner has to allow this one file. That exception was added only after
+   * the suite went red: the scanner had run clean before the commit, when
+   * this file was still untracked, and failed the moment it was committed.
+   *
+   * An exception list is how a real secret eventually gets through, so this
+   * pins its size. If it grows, somebody has to come here and say why.
+   */
+  it('is four paths, and no more', () => {
+    const { readFileSync } = require('node:fs') as typeof import('node:fs');
+    const source = readFileSync('scripts/scan-secrets.mjs', 'utf8');
+    const block = source.slice(
+      source.indexOf('const ALLOWED_PATHS = ['),
+      source.indexOf('];', source.indexOf('const ALLOWED_PATHS = [')),
+    );
+    const entries = block.match(/\/\^/g) ?? [];
+
+    expect(entries).toHaveLength(4);
+    expect(block).toContain('env\\.example');
+    expect(block).toContain('secret-scan\\.test\\.ts');
+  });
+
+  it('does not allow a whole directory of source', () => {
+    const { readFileSync } = require('node:fs') as typeof import('node:fs');
+    const source = readFileSync('scripts/scan-secrets.mjs', 'utf8');
+    const block = source.slice(
+      source.indexOf('const ALLOWED_PATHS = ['),
+      source.indexOf('];', source.indexOf('const ALLOWED_PATHS = [')),
+    );
+
+    // docs/*.md is the one wildcard, and prose is not where keys live.
+    for (const pattern of ['packages/', 'apps/', 'src/', '.*\\.ts$']) {
+      expect(block).not.toContain(pattern);
+    }
+  });
+});
+
 describe('this repository', () => {
   it('has no secret in anything git tracks', () => {
     const output = execFileSync('node', [scanner], { encoding: 'utf8' });

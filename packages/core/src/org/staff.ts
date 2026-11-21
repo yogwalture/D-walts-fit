@@ -240,6 +240,9 @@ export async function listBranches(
 
   return withTenant(ctx, async (tx) => {
     const rows = await tx.branch.findMany({
+      // Bounded: more than 100 branches for one gym is a data
+      // problem, and a truncated list beats a request that times out.
+      take: 100,
       where: {
         deletedAt: null,
         ...(scope === 'BRANCH' && (ctx.branchIds ?? []).length > 0

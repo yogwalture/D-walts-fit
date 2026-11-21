@@ -1,7 +1,7 @@
 import { withTenant } from '@gym/db';
 import { AppError } from '../errors';
 import { requirePermission, type ResolvedPermissions } from '../rbac/engine';
-import { businessDayIso, businessDayRange, today } from '../shared/dates';
+import { businessDayIso, today } from '../shared/dates';
 import { toPaise, toRupees } from '../shared/money';
 
 /**
@@ -107,6 +107,9 @@ export async function memberHome(
 
     const [invoices, visitsThisMonth, lastVisit, totalVisits, bookings] = await Promise.all([
       tx.invoice.findMany({
+        // Bounded: more than 5,000 invoices for one gym is a data
+        // problem, and a truncated list beats a request that times out.
+        take: 5000,
         where: { memberId, status: { in: ['ISSUED', 'PARTIALLY_PAID'] } },
         select: { amountDue: true },
       }),

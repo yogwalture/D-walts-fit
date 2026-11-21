@@ -1,10 +1,10 @@
-import { getJobsClient, withPlatform, withTenant } from '@gym/db';
+import { getJobsClient, withTenant } from '@gym/db';
 import { AppError } from '../errors';
 import { writeAudit } from '../audit/log';
 import { requirePermission, type ResolvedPermissions } from '../rbac/engine';
-import { allocateInvoiceNumber } from '../shared/sequences';
 import { splitTax, toPaise, toRupees } from '../shared/money';
 import { startOfDay, today } from '../shared/dates';
+import { PLATFORM_TENANT_CAP } from '../comms/service';
 
 /**
  * What a gym's own subscription does over time.
@@ -365,6 +365,9 @@ export async function runBilling(
       status: { in: ['TRIAL', 'ACTIVE', 'PAST_DUE'] },
       ...(options.organizationId ? { organizationId: options.organizationId } : {}),
     },
+    // Platform-wide, bounded by the same tenant ceiling as the reminder
+    // sweep. A deployment past it has outgrown shared hosting.
+    take: PLATFORM_TENANT_CAP,
     select: {
       id: true,
       organizationId: true,
@@ -489,9 +492,9 @@ function addCycle(from: Date, cycle: string): Date {
 }
 
 /** Audit rows for platform actions on a tenant, written with the jobs role. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 async function writeTenantAudit(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   organizationId: string,
   input: { action: string; summary: string },
@@ -517,7 +520,7 @@ async function writeTenantAudit(
  * is a separate gapless series from the gym's own invoices to its members.
  */
 async function raiseTenantInvoice(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   input: {
     organizationId: string;

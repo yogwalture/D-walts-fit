@@ -27,7 +27,7 @@ export const GET = route(
     const from = input.from ?? businessDayIso();
     const to = input.to ?? businessDayIso();
 
-    let rows: Array<Record<string, unknown>> = [];
+    let rows: Array<Record<string, unknown>>;
     let name = input.kind;
 
     if (input.kind === 'collections') {

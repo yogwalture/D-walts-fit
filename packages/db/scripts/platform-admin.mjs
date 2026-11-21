@@ -42,6 +42,9 @@ const prisma = new PrismaClient({ datasources: { db: { url } } });
 try {
   if (list) {
     const admins = await prisma.user.findMany({
+      // Bounded: more than 1,000 users for one gym is a data
+      // problem, and a truncated list beats a request that times out.
+      take: 1000,
       where: { isPlatformAdmin: true },
       select: { email: true, fullName: true, status: true, lastLoginAt: true },
       orderBy: { email: 'asc' },

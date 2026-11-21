@@ -26,7 +26,7 @@ export interface AllocatedNumber {
 }
 
 export async function allocateInvoiceNumber(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   tx: any,
   input: {
     organizationId: string;
@@ -75,7 +75,7 @@ export async function allocateInvoiceNumber(
  * locking approach, on org_settings.
  */
 export async function allocateMemberCode(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   tx: any,
   organizationId: string,
 ): Promise<string> {
@@ -95,7 +95,7 @@ export async function allocateMemberCode(
 
 /** Receipt numbers, same guarantee, separate series from invoices. */
 export async function allocateReceiptNumber(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   tx: any,
   organizationId: string,
   at?: Date,

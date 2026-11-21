@@ -151,6 +151,19 @@ export default async function MyPage() {
         )}
       </Card>
 
+      <Card
+        title="Workout"
+        action={
+          <Link href="/my/workout" className="text-base text-accent hover:underline">
+            Open
+          </Link>
+        }
+      >
+        <p className="text-base text-ink-muted">
+          Your plan, with what you lifted last time on every exercise.
+        </p>
+      </Card>
+
       <Card title="Your data">
         <MyDataButton />
       </Card>

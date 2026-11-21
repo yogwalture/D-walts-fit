@@ -60,7 +60,20 @@ export default async function StaffPage({
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatTile label="On the team" value={total} hint={pending.length > 0 ? `${pending.length} invited` : undefined} />
+        <StatTile
+          label="On the team"
+          value={total}
+          hint={
+            [
+              pending.length > 0 ? `${pending.length} invited` : null,
+              // Said out loud, because an owner waiting on a reply to a
+              // lapsed invitation waits for ever.
+              expired.length > 0 ? `${expired.length} expired` : null,
+            ]
+              .filter(Boolean)
+              .join(' · ') || undefined
+          }
+        />
         <StatTile label="Trainers" value={trainers.length} />
         <StatTile
           label="Trainers with no members"

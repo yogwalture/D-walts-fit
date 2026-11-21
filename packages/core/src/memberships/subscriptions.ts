@@ -885,7 +885,7 @@ export async function transferSubscription(
  * twice changes nothing the second time.
  */
 export async function expireSubscriptions(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   options: { batchSize?: number; asOf?: Date } = {},
 ): Promise<{ expired: number }> {
@@ -1077,7 +1077,7 @@ export async function listSubscriptions(
 
     return {
       total,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       rows: rows.map((row: any) => {
         const paid = toPaise(row.paidAmount.toString());
         const owed = toPaise(row.totalAmount.toString());

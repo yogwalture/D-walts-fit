@@ -29,6 +29,7 @@ import {
   AppError,
 } from '@gym/core';
 import { renderInvoicePdf, hasUnsupportedScript } from '@gym/integrations';
+import { nextTestAddress } from '../support/addresses';
 
 const db = new PrismaClient({ datasources: { db: { url: process.env.JOBS_DATABASE_URL } } });
 const unique = () => Math.random().toString(36).slice(2, 8);
@@ -56,6 +57,7 @@ beforeAll(async () => {
     password: PASSWORD,
     planKey: 'PROFESSIONAL',
     acceptedTerms: true,
+    ipAddress: nextTestAddress(),
   });
   createdOrgIds.push(gym.organizationId);
   ctx = { organizationId: gym.organizationId, userId: gym.userId };

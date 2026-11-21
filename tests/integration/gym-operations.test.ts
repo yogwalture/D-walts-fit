@@ -56,6 +56,7 @@ import {
 } from '@gym/core';
 import { verifyWebhookSignature, parseWebhook } from '@gym/integrations';
 import { createHmac } from 'node:crypto';
+import { nextTestAddress } from '../support/addresses';
 
 const db = new PrismaClient({ datasources: { db: { url: process.env.JOBS_DATABASE_URL } } });
 const authDb = authPrisma;
@@ -95,6 +96,7 @@ beforeAll(async () => {
     password: PASSWORD,
     planKey: 'PROFESSIONAL',
     acceptedTerms: true,
+    ipAddress: nextTestAddress(),
   });
   createdOrgIds.push(gym.organizationId);
   ctx = { organizationId: gym.organizationId, userId: gym.userId };

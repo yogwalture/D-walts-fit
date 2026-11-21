@@ -44,7 +44,7 @@ const THROTTLE_RETENTION_HOURS = 24;
  * that is everybody's problem, not just ours.
  */
 async function deleteBatch(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   delegate: any,
   where: Record<string, unknown>,
 ): Promise<{ deleted: number; hitLimit: boolean }> {
@@ -65,7 +65,7 @@ async function deleteBatch(
 }
 
 export async function runHousekeeping(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
 ): Promise<HousekeepingResult> {
   const now = Date.now();
@@ -98,7 +98,7 @@ export async function runHousekeeping(
 
 /** What a tidy-up would remove, without removing it. */
 export async function housekeepingPending(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
 ): Promise<Omit<HousekeepingResult, 'moreToDo'>> {
   const now = Date.now();

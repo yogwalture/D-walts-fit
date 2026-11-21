@@ -51,7 +51,7 @@ export interface IssuedToken {
 }
 
 export async function issueToken(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   input: IssueTokenInput,
 ): Promise<IssuedToken> {
@@ -109,7 +109,7 @@ const invalidToken = () =>
  * them changes a row.
  */
 export async function consumeToken(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   type: TokenType,
   rawToken: string,
@@ -155,7 +155,7 @@ export async function consumeToken(
 
 /** For short codes: records a wrong guess without consuming the token. */
 export async function recordFailedAttempt(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   email: string,
   type: TokenType,
@@ -168,7 +168,7 @@ export async function recordFailedAttempt(
 
 /** Cleanup, run by the daily session-and-token job. */
 export async function purgeExpiredTokens(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
 ): Promise<number> {
   const result = await db.verificationToken.deleteMany({

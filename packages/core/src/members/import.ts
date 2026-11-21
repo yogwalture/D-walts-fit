@@ -476,6 +476,9 @@ export async function stageImport(
     const existing =
       phones.length > 0
         ? await tx.member.findMany({
+          // Bounded: more than 5,000 members for one gym is a data
+          // problem, and a truncated list beats a request that times out.
+          take: 5000,
             where: { phone: { in: phones }, deletedAt: null },
             select: { id: true, phone: true, memberCode: true, firstName: true, lastName: true },
           })
@@ -567,6 +570,9 @@ export async function stageImport(
     const duplicates =
       duplicateIds.length > 0
         ? await tx.member.findMany({
+          // Bounded: more than 5,000 members for one gym is a data
+          // problem, and a truncated list beats a request that times out.
+          take: 5000,
             where: { id: { in: duplicateIds } },
             select: { id: true, memberCode: true, firstName: true, lastName: true },
           })
@@ -583,7 +589,7 @@ export async function stageImport(
       duplicateRows,
       invalidRows,
       truncated: table.truncated,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       sample: sample.map((row: any) => {
         const duplicate = row.duplicateOfMemberId
           ? duplicateById.get(row.duplicateOfMemberId)
@@ -863,7 +869,7 @@ export async function getImportProblems(
 
     return {
       total,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       rows: rows.map((row: any) => ({
         rowNumber: row.rowNumber,
         status: row.status,

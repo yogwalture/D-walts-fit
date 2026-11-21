@@ -70,6 +70,9 @@ export async function listClassTypes(
 
   return withTenant(ctx, async (tx) => {
     const rows = await tx.classType.findMany({
+      // Bounded: more than 200 kinds of class a gym runs for one gym is a data
+      // problem, and a truncated list beats a request that times out.
+      take: 200,
       where: options.includeInactive ? {} : { isActive: true },
       orderBy: { name: 'asc' },
       include: {
@@ -431,7 +434,7 @@ export function plannedOccurrences(
 
 /** The branch a class belongs to, respecting the actor's branch scope. */
 async function resolveBranch(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   tx: any,
   ctx: ClassContext,
   permissions: ResolvedPermissions,
@@ -785,9 +788,12 @@ export async function cancelBooking(
 }
 
 /** Keeps waitlist positions as 1, 2, 3 after somebody leaves the queue. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 async function renumberWaitlist(tx: any, classId: string): Promise<void> {
   const waiting = await tx.classBooking.findMany({
+    // Bounded: more than 2,000 bookings for one class for one gym is a data
+    // problem, and a truncated list beats a request that times out.
+    take: 2000,
     where: { classId, status: 'WAITLISTED' },
     orderBy: [{ waitlistPosition: 'asc' }, { bookedAt: 'asc' }],
     select: { id: true },
@@ -982,6 +988,9 @@ export async function listClasses(
           : undefined).end;
 
     const rows = await tx.gymClass.findMany({
+      // Bounded: more than 2,000 classes in a window for one gym is a data
+      // problem, and a truncated list beats a request that times out.
+      take: 2000,
       where: {
         startsAt: { gte: start, lt: end },
         ...(options.includeCancelled ? {} : { cancelledAt: null }),
@@ -1181,6 +1190,9 @@ export async function cancelClass(
     const ids: string[] = input.wholeSeries && target.recurrenceGroupId
       ? (
           await tx.gymClass.findMany({
+            // Bounded: more than 2,000 classes in a window for one gym is a data
+            // problem, and a truncated list beats a request that times out.
+            take: 2000,
             where: {
               recurrenceGroupId: target.recurrenceGroupId,
               cancelledAt: null,
@@ -1192,6 +1204,9 @@ export async function cancelClass(
       : [input.classId];
 
     const bookings = await tx.classBooking.findMany({
+      // Bounded: more than 2,000 bookings for one class for one gym is a data
+      // problem, and a truncated list beats a request that times out.
+      take: 2000,
       where: { classId: { in: ids }, status: { in: ['BOOKED', 'WAITLISTED'] } },
       select: {
         id: true,

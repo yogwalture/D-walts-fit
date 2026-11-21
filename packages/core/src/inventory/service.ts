@@ -3,8 +3,6 @@ import { AppError } from '../errors';
 import { writeAudit } from '../audit/log';
 import {
   requirePermission,
-  scopeOf,
-  branchFilter,
   type ResolvedPermissions,
 } from '../rbac/engine';
 import { allocateInvoiceNumber, allocateReceiptNumber } from '../shared/sequences';
@@ -65,6 +63,9 @@ export async function listProducts(
 
   return withTenant(ctx, async (tx) => {
     const rows = await tx.product.findMany({
+      // Bounded: more than 1,000 products in a gym shop for one gym is a data
+      // problem, and a truncated list beats a request that times out.
+      take: 1000,
       where: {
         deletedAt: null,
         ...(options.includeInactive ? {} : { isActive: true }),
@@ -426,6 +427,9 @@ export async function listMovements(
     const userIds = [...new Set(rows.map((r: any) => r.recordedByUserId).filter(Boolean))];
     const users = userIds.length
       ? await tx.user.findMany({
+        // Bounded: more than 1,000 users for one gym is a data
+        // problem, and a truncated list beats a request that times out.
+        take: 1000,
           where: { id: { in: userIds as string[] } },
           select: { id: true, fullName: true },
         })
@@ -761,11 +765,17 @@ export async function shopSummary(
     const day = businessDayRange(settings?.timezone ?? 'Asia/Kolkata');
 
     const products = await tx.product.findMany({
+      // Bounded: more than 1,000 products in a gym shop for one gym is a data
+      // problem, and a truncated list beats a request that times out.
+      take: 1000,
       where: { deletedAt: null, isActive: true },
       select: { quantityOnHand: true, reorderLevel: true, purchasePrice: true },
     });
 
     const sales = await tx.stockMovement.findMany({
+      // Bounded: more than 5,000 stock movements for one gym is a data
+      // problem, and a truncated list beats a request that times out.
+      take: 5000,
       where: {
         movementType: 'SALE',
         occurredAt: { gte: day.start, lt: day.end },

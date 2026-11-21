@@ -99,7 +99,6 @@ export default async function RotaPage({
 
       <RotaControls
         date={date}
-        canMark={canMark}
         canRota={canRota}
         canApprove={canApprove}
         staff={day.rows.map((row) => ({ id: row.orgUserId, name: row.fullName }))}

@@ -113,7 +113,7 @@ const NAVIGATION: NavSection[] = [
         href: '/fitness/workout-plans',
         label: 'Workouts',
         permission: 'fitness.workout.read',
-        built: false,
+        built: true,
       },
       {
         href: '/classes/schedule',

@@ -25,7 +25,7 @@ export interface MfaSetup {
 }
 
 export async function beginMfaSetup(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   input: { userId: string; issuer?: string },
 ): Promise<MfaSetup> {
@@ -50,7 +50,7 @@ export async function beginMfaSetup(
 }
 
 export async function confirmMfaSetup(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   input: { userId: string; totp: string },
 ): Promise<{ recoveryCodes: string[] }> {
@@ -88,7 +88,7 @@ export async function confirmMfaSetup(
  * laptop should not be able to remove someone's second factor.
  */
 export async function disableMfa(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   input: { userId: string; password: string },
 ): Promise<void> {
@@ -121,7 +121,7 @@ export async function disableMfa(
  * so a screenshot of the list loses one line each time it is used.
  */
 export async function consumeRecoveryCode(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   input: { userId: string; code: string },
 ): Promise<{ remaining: number }> {

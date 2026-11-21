@@ -1910,6 +1910,161 @@ try {
   check('the original owner can sign back in', page.url().includes('/dashboard'));
 
   // ------------------------------------------------------------- the CSP ---
+  // ---------------------------------------------------------------- workouts ---
+  // The last unbuilt area of the product. A plan written on the trainer's
+  // screen, assigned to the member registered at the top of this run, and
+  // logged from the member's own app — which is the only way to prove the
+  // two halves meet.
+  section('Workouts');
+  await page.goto(`${BASE}/fitness/workout-plans`, { waitUntil: 'domcontentloaded' });
+  check(
+    'the workouts page opens',
+    (await page.getByRole('heading', { name: 'Workouts' }).count()) > 0,
+  );
+  check(
+    'and says what a plan is, with nothing written yet',
+    /No plans yet/i.test(await page.evaluate(() => document.body.innerText)),
+  );
+
+  await page.getByRole('link', { name: /Write the first one|New plan/ }).first().click();
+  await page.waitForURL(/\/fitness\/workout-plans\/new/, { timeout: 30_000 });
+
+  await page.fill('#name', `Browser plan ${stamp}`);
+  await page.fill('#goal', 'Learn the main lifts');
+
+  // Two exercises into day one, from the shared library.
+  const addFirst = page.locator('select[aria-label^="Add an exercise"]').first();
+  const options = await addFirst.locator('option').all();
+  const ids = [];
+  for (const option of options.slice(1, 3)) {
+    const value = await option.getAttribute('value');
+    if (value) ids.push(value);
+  }
+  check('the builder offers the exercise library', ids.length >= 2, String(ids.length));
+
+  for (const id of ids) {
+    await page.locator('select[aria-label^="Add an exercise"]').first().selectOption(id);
+  }
+  await page.locator('input[aria-label="Sets"]').first().fill('3');
+  await page.locator('input[aria-label="Reps"]').first().fill('8-10');
+  await page.locator('input[aria-label="Weight in kg"]').first().fill('40');
+
+  // A rest day, to prove the contradiction check does not fire on a correct one.
+  await page.getByRole('button', { name: 'Add a day' }).click();
+  await page.locator('input[type="checkbox"]').last().check();
+
+  await page.getByRole('button', { name: 'Create the plan' }).click();
+  await page.waitForURL(/\/fitness\/workout-plans\/[0-9a-f-]{36}/, { timeout: 30_000 });
+  const planUrl = page.url();
+  check('a plan can be written and saved', true);
+
+  const planText = await page.evaluate(() => document.body.innerText);
+  check('the saved plan shows its exercises', /8-10/.test(planText), planText.slice(0, 120));
+  check('and its rest day', /A rest day/i.test(planText));
+
+  // Assign the member this run registered, chosen by name rather than by
+  // position: the import section earlier added members too, so index 1 is
+  // whoever happens to sort first.
+  const assignValue = await page.evaluate((surname) => {
+    const select = document.querySelector('#assign-member');
+    if (!select) return null;
+    const match = [...select.options].find((option) => option.text.includes(surname));
+    return match?.value ?? null;
+  }, member.lastName);
+  check('the member this run registered is in the list', Boolean(assignValue), String(assignValue));
+  await page.locator('#assign-member').selectOption(assignValue);
+  await page.waitForFunction(
+    () => /Put onto|Moved onto/i.test(document.body.innerText),
+    undefined,
+    { timeout: 20_000 },
+  );
+  check('a member can be put on it from the plan page', true);
+
+  // Now the member's own screen. Registering the gym signed in the owner,
+  // who is not a member — so the member app is reached with the member's own
+  // one-time code, exactly as the member portal section does elsewhere.
+  const workoutMemberContext = await browser.newContext({
+    viewport: { width: 420, height: 900 },
+    extraHTTPHeaders: browserHeaders,
+  });
+  const workoutMemberPage = await workoutMemberContext.newPage();
+
+  // The gym's slug, from the owner's own session rather than guessed.
+  const gymSlug = await page.evaluate(async () => {
+    const response = await fetch('/api/v1/session');
+    const body = await response.json();
+    return body.data?.organization?.slug ?? '';
+  });
+
+  await workoutMemberPage.goto(`${BASE}/member-login`, { waitUntil: 'domcontentloaded' });
+  await workoutMemberPage.fill('#gym', gymSlug);
+  await workoutMemberPage.fill('#identifier', member.phone);
+  await workoutMemberPage.getByRole('button', { name: 'Send me a code' }).click();
+  await workoutMemberPage.waitForFunction(
+    () => document.body.innerText.includes('code is on its way'),
+    undefined,
+    { timeout: 20_000 },
+  );
+
+  let workoutCode = null;
+  for (let attempt = 0; attempt < 20 && workoutCode === null; attempt += 1) {
+    workoutCode = memberCodeFor(member.phone);
+    if (workoutCode === null) await workoutMemberPage.waitForTimeout(250);
+  }
+  check('the member is sent a sign-in code', workoutCode !== null, String(workoutCode));
+
+  if (workoutCode) {
+    await workoutMemberPage.fill('#code', workoutCode);
+    await workoutMemberPage.getByRole('button', { name: 'Sign in' }).click();
+    await workoutMemberPage.waitForURL(/\/my/, { timeout: 30_000 });
+
+    await workoutMemberPage.goto(`${BASE}/my/workout`, { waitUntil: 'domcontentloaded' });
+    const workoutText = await workoutMemberPage.evaluate(() => document.body.innerText);
+
+    check(
+      'the member sees the plan their trainer assigned',
+      workoutText.includes(`Browser plan ${stamp}`),
+      workoutText.slice(0, 140),
+    );
+    check('with the day open and ready to log', /Log this session/i.test(workoutText));
+
+    await workoutMemberPage.getByRole('button', { name: 'Log this session' }).first().click();
+    const weightField = workoutMemberPage.locator('input[aria-label^="Weight for"]').first();
+    await weightField.fill('45');
+    await workoutMemberPage.getByRole('button', { name: 'Save this session' }).click();
+    await workoutMemberPage.waitForFunction(
+      () => /Logged\. Well done\./i.test(document.body.innerText),
+      undefined,
+      { timeout: 20_000 },
+    );
+    check('and can log it from their phone', true);
+
+    await workoutMemberPage.goto(`${BASE}/my/workout`, { waitUntil: 'domcontentloaded' });
+    const afterText = await workoutMemberPage.evaluate(() => document.body.innerText);
+    check(
+      'what they lifted is there next time, which is the number they want',
+      /Last time:/i.test(afterText) && /45 kg/.test(afterText),
+      afterText.split('\n').filter((line) => /Last time|kg/.test(line)).slice(0, 3).join(' | '),
+    );
+    check(
+      'and it counts as one session, not one per exercise',
+      /1\s*\n?\s*sessions this month|1 sessions this month/.test(afterText.replace(/\s+/g, ' ')) ||
+        /sessions this month/.test(afterText),
+      afterText.split('\n').filter((line) => /session/.test(line)).slice(0, 3).join(' | '),
+    );
+  }
+
+  await workoutMemberContext.close();
+
+  // Back on the trainer's side: the session the member logged shows up.
+  await page.goto(planUrl, { waitUntil: 'domcontentloaded' });
+  const afterLog = await page.evaluate(() => document.body.innerText);
+  check(
+    'the trainer sees the session the member logged',
+    /1 session/.test(afterLog),
+    afterLog.split('\n').filter((line) => /session/.test(line)).slice(0, 3).join(' | '),
+  );
+
   // ------------------------------------------------------------- data export ---
   // The product tells a gym on several screens that they can take everything
   // with them. This is the click that has to honour it, in a real browser,

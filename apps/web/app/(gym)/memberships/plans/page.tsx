@@ -24,6 +24,9 @@ export default async function PlansPage() {
     canManage
       ? withTenant(ctx, (tx) =>
           tx.taxRate.findMany({
+            // Bounded: more than 50 GST rates for one gym is a data
+            // problem, and a truncated list beats a request that times out.
+            take: 50,
             where: { isActive: true },
             select: { id: true, name: true, percentage: true, isDefault: true },
             orderBy: [{ isDefault: 'desc' }, { percentage: 'asc' }],

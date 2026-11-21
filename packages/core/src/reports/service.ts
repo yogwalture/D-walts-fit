@@ -1,8 +1,8 @@
 import { withTenant } from '@gym/db';
 import { AppError } from '../errors';
 import { requirePermission, branchFilter, type ResolvedPermissions } from '../rbac/engine';
-import { splitTax, toPaise, toRupees } from '../shared/money';
-import { businessDayRange, startOfDay } from '../shared/dates';
+import { toPaise, toRupees } from '../shared/money';
+import { startOfDay } from '../shared/dates';
 
 /**
  * Reports — the numbers a gym owner is asked for by somebody else.
@@ -37,7 +37,40 @@ function range(from: string, to: string): { start: Date; end: Date } {
 
 // ------------------------------------------------------------ collections ---
 
-export interface CollectionsReport {
+/**
+ * The most rows any one report will read.
+ *
+ * Reports aggregate in JavaScript, so an unbounded read is both a 120-second
+ * request on a shared host and however much memory the rows take. A `take`
+ * on its own would be worse than either: a total computed from the first
+ * 20,000 of 30,000 payments is a wrong number presented as a right one, and
+ * a gym would file it.
+ *
+ * So every report caps the read AND says whether it hit the cap. The screen
+ * shows that plainly and tells the reader to narrow the dates. A report that
+ * admits it is incomplete is useful; one that quietly is, is not.
+ */
+export const REPORT_ROW_CAP = 20_000;
+
+export interface ReportTruncation {
+  /** True when the cap was reached, so the figures below are partial. */
+  truncated: boolean;
+  /** What to say about it. Null when the report is complete. */
+  truncationNote: string | null;
+}
+
+function truncation(rowsRead: number, what: string): ReportTruncation {
+  if (rowsRead < REPORT_ROW_CAP) return { truncated: false, truncationNote: null };
+  return {
+    truncated: true,
+    truncationNote:
+      `This covers the first ${REPORT_ROW_CAP.toLocaleString('en-IN')} ${what} in the ` +
+      'period and there are more, so the totals below are incomplete. ' +
+      'Choose a shorter date range.',
+  };
+}
+
+export interface CollectionsReport extends ReportTruncation {
   from: string;
   to: string;
   total: string;
@@ -75,6 +108,10 @@ export async function collectionsReport(
         receivedAt: true,
         recordedByUserId: true,
       },
+      // Oldest first, so a truncated report is a complete prefix of the
+      // period rather than an arbitrary slice of it.
+      orderBy: { receivedAt: 'asc' },
+      take: REPORT_ROW_CAP,
     });
 
     const userIds = [...new Set(payments.map((p: any) => p.recordedByUserId).filter(Boolean))];
@@ -82,6 +119,8 @@ export async function collectionsReport(
       ? await tx.user.findMany({
           where: { id: { in: userIds as string[] } },
           select: { id: true, fullName: true },
+          // Bounded by the ids above, which come from the capped read.
+          take: userIds.length,
         })
       : [];
     const names = new Map(users.map((u: any) => [u.id, u.fullName]));
@@ -113,6 +152,7 @@ export async function collectionsReport(
       rows.sort((a, b) => Number(b.amount) - Number(a.amount));
 
     return {
+      ...truncation(payments.length, 'payments'),
       from: options.from,
       to: options.to,
       total: toRupees(totalPaise),
@@ -136,7 +176,7 @@ export async function collectionsReport(
 
 // ------------------------------------------------------------------- GST ---
 
-export interface TaxReport {
+export interface TaxReport extends ReportTruncation {
   from: string;
   to: string;
   taxable: string;
@@ -187,6 +227,8 @@ export async function taxReport(
         invoiceId: true,
         taxRate: { select: { components: true } },
       },
+      orderBy: { id: 'asc' },
+      take: REPORT_ROW_CAP,
     });
 
     const byRate = new Map<
@@ -232,6 +274,7 @@ export async function taxReport(
     }
 
     return {
+      ...truncation(lines.length, 'invoice lines'),
       from: options.from,
       to: options.to,
       taxable: toRupees(taxablePaise),
@@ -304,7 +347,7 @@ export async function outstandingDues(
   ctx: ReportContext,
   permissions: ResolvedPermissions,
   options: { branchId?: string } = {},
-): Promise<{ total: string; rows: DuesRow[] }> {
+): Promise<{ total: string; rows: DuesRow[] } & ReportTruncation> {
   requirePermission(permissions, 'finance.report.read');
   const branches = branchFilter(permissions, 'finance.report.read');
 
@@ -325,6 +368,10 @@ export async function outstandingDues(
           select: { memberCode: true, firstName: true, lastName: true, phone: true },
         },
       },
+      // Oldest first: if there are more unpaid invoices than the cap, the
+      // ones a gym most needs to chase are the ones it gets.
+      orderBy: { issueDate: 'asc' },
+      take: REPORT_ROW_CAP,
     });
 
     const byMember = new Map<string, DuesRow & { duePaise: number }>();
@@ -378,13 +425,17 @@ export async function outstandingDues(
       }))
       .sort((a, b) => b.daysOverdue - a.daysOverdue || Number(b.amountDue) - Number(a.amountDue));
 
-    return { total: toRupees(totalPaise), rows };
+    return {
+      ...truncation(invoices.length, 'unpaid invoices'),
+      total: toRupees(totalPaise),
+      rows,
+    };
   });
 }
 
 // ---------------------------------------------------------- memberships ---
 
-export interface MembershipReport {
+export interface MembershipReport extends ReportTruncation {
   from: string;
   to: string;
   sold: number;
@@ -419,6 +470,8 @@ export async function membershipReport(
         previousSubscriptionId: true,
         plan: { select: { name: true } },
       },
+      orderBy: { createdAt: 'asc' },
+      take: REPORT_ROW_CAP,
     });
 
     const expired = await tx.subscription.count({
@@ -441,6 +494,7 @@ export async function membershipReport(
     const sold = subscriptions.length;
 
     return {
+      ...truncation(subscriptions.length, 'memberships'),
       from: options.from,
       to: options.to,
       sold,

@@ -25,6 +25,10 @@ export default defineConfig({
     },
   },
   test: {
+    // Clears the throttle counters an earlier run left behind. Without it
+    // the suite fails on its fourth or fifth run of the afternoon, in a
+    // different place each time.
+    globalSetup: ['./tests/support/global-setup.ts'],
     include: ['tests/**/*.test.ts'],
     exclude: ['tests/e2e/**'],
     // Isolation tests share one database and assert exact row counts, so

@@ -81,6 +81,9 @@ export async function staffDay(
         : null;
 
     const staff = await tx.orgUser.findMany({
+      // Bounded: more than 1,000 staff with access to a gym for one gym is a data
+      // problem, and a truncated list beats a request that times out.
+      take: 1000,
       where: {
         deletedAt: null,
         status: 'ACTIVE',
@@ -111,6 +114,9 @@ export async function staffDay(
 
     const [attendance, shifts] = await Promise.all([
       tx.staffAttendance.findMany({
+        // Bounded: more than 2,000 staff attendance rows for one gym is a data
+        // problem, and a truncated list beats a request that times out.
+        take: 2000,
         where: { orgUserId: { in: ids }, attendanceDate: day },
         select: {
           orgUserId: true,
@@ -121,6 +127,9 @@ export async function staffDay(
         },
       }),
       tx.staffShift.findMany({
+        // Bounded: more than 2,000 rota entries for one gym is a data
+        // problem, and a truncated list beats a request that times out.
+        take: 2000,
         where: {
           orgUserId: { in: ids },
           OR: [{ weekday }, { shiftDate: day }],
@@ -303,6 +312,9 @@ export async function staffAttendanceSummary(
 
   return withTenant(ctx, async (tx) => {
     const rows = await tx.staffAttendance.findMany({
+      // Bounded: more than 2,000 staff attendance rows for one gym is a data
+      // problem, and a truncated list beats a request that times out.
+      take: 2000,
       where: { attendanceDate: { gte: from, lte: to } },
       select: {
         orgUserId: true,
@@ -366,6 +378,9 @@ export async function listShifts(
 
   return withTenant(ctx, async (tx) => {
     const rows = await tx.staffShift.findMany({
+      // Bounded: more than 2,000 rota entries for one gym is a data
+      // problem, and a truncated list beats a request that times out.
+      take: 2000,
       where: { ...(options.orgUserId ? { orgUserId: options.orgUserId } : {}) },
       orderBy: [{ weekday: 'asc' }, { startTime: 'asc' }],
       select: {
@@ -782,6 +797,9 @@ export async function listLeave(
     const deciderIds = [...new Set(rows.map((r: any) => r.decidedByUserId).filter(Boolean))];
     const deciders = deciderIds.length
       ? await tx.user.findMany({
+        // Bounded: more than 1,000 users for one gym is a data
+        // problem, and a truncated list beats a request that times out.
+        take: 1000,
           where: { id: { in: deciderIds as string[] } },
           select: { id: true, fullName: true },
         })

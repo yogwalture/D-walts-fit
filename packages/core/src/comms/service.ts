@@ -2,7 +2,7 @@ import { withTenant, getJobsClient } from '@gym/db';
 import { AppError } from '../errors';
 import { writeAudit } from '../audit/log';
 import { requirePermission, branchFilter, type ResolvedPermissions } from '../rbac/engine';
-import { businessDayRange, today, startOfDay } from '../shared/dates';
+import { businessDayRange, today } from '../shared/dates';
 import { decryptSecret } from '../shared/crypto';
 import { describeSendability, renderTemplate, type CommsContext } from './templates';
 
@@ -53,7 +53,7 @@ export const SEND_BATCH_SIZE = 40;
  * when a campaign is sitting in a queue.
  */
 export async function mayReceive(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   tx: any,
   input: {
     subjectType: 'MEMBER' | 'LEAD' | 'USER';
@@ -140,9 +140,9 @@ export async function recordInboundOptOut(input: {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 async function upsertPreference(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   tx: any,
   organizationId: string,
   input: {
@@ -783,6 +783,9 @@ export async function listMessages(
 
     const members = memberIds.length
       ? await tx.member.findMany({
+        // Bounded: more than 5,000 members for one gym is a data
+        // problem, and a truncated list beats a request that times out.
+        take: 5000,
           where: { id: { in: memberIds } },
           select: { id: true, firstName: true, lastName: true },
         })
@@ -1015,6 +1018,16 @@ export interface ReminderRun {
  * Idempotent by construction: the key is the member, the subscription and
  * the day, so running the cron twice cannot message anybody twice.
  */
+/**
+ * The most tenants a platform-wide job will sweep in one pass.
+ *
+ * Deliberately far above the ~40 paying tenants this hosting plan is
+ * documented to carry, and far below anything that would take a request
+ * past 120 seconds. A deployment that outgrows it has already outgrown
+ * shared hosting, and the job becomes a cursored drain at that point.
+ */
+export const PLATFORM_TENANT_CAP = 500;
+
 export async function queueExpiryReminders(
   options: { daysAhead?: number; organizationId?: string } = {},
 ): Promise<ReminderRun> {
@@ -1029,6 +1042,11 @@ export async function queueExpiryReminders(
       deletedAt: null,
       ...(options.organizationId ? { id: options.organizationId } : {}),
     },
+    // Platform-wide, so bounded by the tenant ceiling this hosting plan is
+    // documented to hold rather than by what one gym contains. Past that
+    // the deployment moves to a VPS (see docs/DEPLOYMENT_HOSTINGER.md), and
+    // this becomes a cursored drain like the message queue.
+    take: PLATFORM_TENANT_CAP,
     select: { id: true },
   });
 
@@ -1059,6 +1077,9 @@ export async function queueExpiryReminders(
     const targetIso = target.toISOString().slice(0, 10);
 
     const expiring = await db.subscription.findMany({
+      // Bounded: more than 5,000 memberships for one gym is a data
+      // problem, and a truncated list beats a request that times out.
+      take: 5000,
       where: {
         organizationId: organization.id,
         status: 'ACTIVE',

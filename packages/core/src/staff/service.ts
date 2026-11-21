@@ -106,7 +106,7 @@ export async function getStaffProfile(
       where: { assignedTrainerOrgUserId: orgUserId, deletedAt: null },
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const profile = orgUser.staffProfile as any;
 
     return {
@@ -325,7 +325,7 @@ export async function listTrainers(
       ]),
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     return orgUsers.map((row: any) => ({
       orgUserId: row.id,
       fullName: row.user.fullName,
@@ -492,7 +492,7 @@ export async function trainerRoster(
 
     return {
       trainer: trainer ? { orgUserId: trainer.id, fullName: trainer.user.fullName } : null,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       members: members.map((row: any) => ({
         id: row.id,
         memberCode: row.memberCode,

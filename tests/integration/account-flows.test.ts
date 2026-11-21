@@ -37,6 +37,7 @@ import {
   purgeExpiredTokens,
   AppError,
 } from '@gym/core';
+import { nextTestAddress } from '../support/addresses';
 
 /** Fixtures and assertions about stored state: the job role. */
 const db = new PrismaClient({ datasources: { db: { url: process.env.JOBS_DATABASE_URL } } });
@@ -76,7 +77,7 @@ beforeAll(async () => {
     password: PASSWORD,
     planKey: 'PROFESSIONAL',
     acceptedTerms: true,
-    ipAddress: '198.51.100.7',
+    ipAddress: nextTestAddress(),
   });
   createdOrgIds.push(gym.organizationId);
   ownerCtx = { organizationId: gym.organizationId, userId: gym.userId };
@@ -344,6 +345,7 @@ describe('staff invitations', () => {
       password: PASSWORD,
       planKey: 'STARTER',
       acceptedTerms: true,
+    ipAddress: nextTestAddress(),
     });
     createdOrgIds.push(other.organizationId);
 
@@ -715,6 +717,7 @@ describe('the platform console', () => {
       password: PASSWORD,
       planKey: 'STARTER',
       acceptedTerms: true,
+    ipAddress: nextTestAddress(),
     });
     createdOrgIds.push(victim.organizationId);
 

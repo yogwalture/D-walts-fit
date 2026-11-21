@@ -119,7 +119,7 @@ export async function listInvoices(
         billed: amount(sums._sum?.total),
         due: amount(sums._sum?.amountDue),
       },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       rows: rows.map((row: any) => ({
         id: row.id,
         invoiceCode: row.invoiceCode,
@@ -326,7 +326,7 @@ export async function getInvoiceDocument(
     ].filter((part): part is string => Boolean(part && part.trim()));
 
     // --- lines, with the taxable value spelled out ------------------------
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const lines = invoice.lines.map((line: any) => {
       const lineTotal = toPaise(line.lineTotal.toString());
       const tax = toPaise(line.taxAmount.toString());
@@ -350,7 +350,7 @@ export async function getInvoiceDocument(
       { taxablePaise: number; taxPaise: number; components: Record<string, number> }
     >();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     for (const line of invoice.lines as any[]) {
       const percentage = Number(line.taxPercentage).toString();
       if (Number(percentage) === 0) continue;
@@ -442,7 +442,7 @@ export async function getInvoiceDocument(
       },
       lines,
       taxSummary,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       payments: invoice.payments.map((payment: any) => ({
         receiptCode: payment.receiptCode,
         method: payment.method,

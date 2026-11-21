@@ -27,7 +27,7 @@ export interface ResetRequestResult {
 }
 
 export async function requestPasswordReset(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   input: ResetRequest,
 ): Promise<ResetRequestResult> {
@@ -75,7 +75,7 @@ export async function requestPasswordReset(
 }
 
 export async function resetPassword(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   input: { token: string; password: string },
 ): Promise<{ userId: string; sessionsRevoked: number }> {
@@ -122,7 +122,7 @@ export async function resetPassword(
 }
 
 export async function changePassword(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   db: any,
   input: {
     userId: string;

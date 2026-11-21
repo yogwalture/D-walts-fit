@@ -47,6 +47,9 @@ export default async function MemberPage({
     holds(session, 'memberships.subscription.create')
       ? withTenant(ctx, (tx) =>
           tx.membershipPlan.findMany({
+            // Bounded: more than 200 membership plans for one gym is a data
+            // problem, and a truncated list beats a request that times out.
+            take: 200,
             where: { deletedAt: null, isActive: true },
             select: { id: true, name: true, price: true, durationUnit: true, durationValue: true },
             orderBy: [{ displayOrder: 'asc' }, { price: 'asc' }],

@@ -92,13 +92,6 @@ function run(command, argv, options = {}) {
   });
 }
 
-function sql(database, statement) {
-  return run('psql', [
-    '-h', target.host, '-p', target.port, '-U', target.user,
-    '-d', database, '-tAc', statement,
-  ]).trim();
-}
-
 // --------------------------------------------------------------- dump ---
 
 function takeBackup() {
@@ -244,7 +237,7 @@ function restoreInto(file, database) {
 
   // pg_restore exits non-zero on warnings that do not matter (an extension
   // comment, a missing role), so its output is read rather than its code.
-  let output = '';
+  let output;
   try {
     output = run('pg_restore', [
       '-h', target.host, '-p', target.port, '-U', target.user,

@@ -91,6 +91,10 @@ export default async function ExportPage() {
             Staff salaries and bank details. They are permission-gated inside the product, and a
             bulk spreadsheet is the one place that gate would not hold.
           </li>
+          <li>
+            The shared exercise library every gym on this system reads. Your own exercises, your
+            training plans and every session your members logged are all included.
+          </li>
         </ul>
       </section>
 

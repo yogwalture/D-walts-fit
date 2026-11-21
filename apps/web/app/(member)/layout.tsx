@@ -13,6 +13,7 @@ import { SignOutButton } from '@/components/sign-out-button';
  */
 const TABS = [
   { href: '/my', label: 'Home' },
+  { href: '/my/workout', label: 'Workout' },
   { href: '/my/classes', label: 'Classes' },
   { href: '/my/visits', label: 'Visits' },
   { href: '/my/payments', label: 'Payments' },

@@ -21,6 +21,9 @@ export async function cheapestPlanWithFeature(
   const db = getJobsClient();
 
   const plans = await db.platformPlan.findMany({
+    // Bounded: more than 50 SaaS plans for one gym is a data
+    // problem, and a truncated list beats a request that times out.
+    take: 50,
     where: { isPublic: true },
     orderBy: { displayOrder: 'asc' },
     select: {
@@ -58,6 +61,9 @@ export async function listSignupPlans(): Promise<
   const db = getJobsClient();
 
   const plans = await db.platformPlan.findMany({
+    // Bounded: more than 50 SaaS plans for one gym is a data
+    // problem, and a truncated list beats a request that times out.
+    take: 50,
     where: { isPublic: true, key: { not: 'ENTERPRISE' } },
     orderBy: { displayOrder: 'asc' },
     select: {
