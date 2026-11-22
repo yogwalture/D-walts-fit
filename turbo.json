@@ -9,6 +9,7 @@
     "ENCRYPTION_KEY"
   ],
   "tasks": {
+    "@gym/db#build": { "cache": false, "outputs": [] },
     "build": {
       "dependsOn": [
         "^build"
