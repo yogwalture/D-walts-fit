@@ -83,6 +83,12 @@ jobs:
 
       - run: pnpm test
 
+      # Nothing above compiles the app for production, which is what the host does.
+      - name: Production build
+        env:
+          NODE_ENV: production
+        run: pnpm build
+
   # A deploy only happens from a green build on main. The Hostinger side is
   # wired to this branch, so a red build never reaches production.
   deploy:
