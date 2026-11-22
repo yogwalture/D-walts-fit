@@ -112,6 +112,10 @@ jobs:
       - name: Apply migrations to production
         env:
           DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          # migrate deploy connects through directUrl, but Prisma validates the
+          # whole datasource block before it does anything, so an unset
+          # DATABASE_URL fails with P1012 before a connection is ever opened.
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: pnpm db:migrate:deploy
 
       # The migrations are only half of it. A managed provider can hand back a
