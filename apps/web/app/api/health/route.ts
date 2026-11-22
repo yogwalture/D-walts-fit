@@ -13,7 +13,9 @@ export async function GET() {
   const database: 'up' | 'down' = await basePrismaForAuth()
     .$queryRaw`SELECT 1`.then(
       () => 'up' as const,
-      () => 'down' as const,
+      // Deliberately vague in the response -- this route is public. The reason
+      // goes to the server log, the only place to find it without guessing.
+      (error) => { console.error('[health] database check failed:', error); return 'down' as const; },
     );
 
   const body = {
