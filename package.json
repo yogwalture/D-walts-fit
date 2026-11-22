@@ -9,7 +9,7 @@
   },
   "packageManager": "pnpm@10.28.0",
   "scripts": {
-    "build": "turbo run build",
+    "build": "turbo run build && node scripts/copy-standalone.mjs",
     "dev": "turbo run dev",
     "lint": "eslint .",
     "typecheck": "turbo run typecheck",
