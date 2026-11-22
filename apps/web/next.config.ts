@@ -56,6 +56,15 @@ const config: NextConfig = {
     // Request bodies are small; the large files go straight to object
     // storage with a presigned URL and never pass through this process.
     serverActions: { bodySizeLimit: '2mb' },
+
+    // Shared hosting caps how many processes and threads an account may hold
+    // open at once. Next spawns a build worker per CPU, and each worker starts
+    // a Rust thread pool sized to the core count of the machine rather than the
+    // share the account gets, so thread creation fails with EAGAIN partway
+    // through collecting page data. One in-process worker stays under the cap,
+    // at the cost of build time nobody is waiting on.
+    cpus: 1,
+    workerThreads: false,
   },
 
   async headers() {
