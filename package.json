@@ -23,7 +23,7 @@
     "platform:admin": "pnpm --filter @gym/db platform:admin",
     "scan:secrets": "node scripts/scan-secrets.mjs",
     "scan:secrets:history": "node scripts/scan-secrets.mjs --history",
-    "verify": "pnpm scan:secrets && pnpm typecheck && pnpm lint && pnpm test",
+    "verify": "pnpm scan:secrets && pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "backup": "node scripts/backup.mjs",
     "backup:verify": "node scripts/backup.mjs --verify",
     "preflight": "node scripts/preflight-db.mjs",
