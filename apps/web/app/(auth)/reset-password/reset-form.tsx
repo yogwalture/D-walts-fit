@@ -89,13 +89,13 @@ export function ResetPasswordForm() {
           type="password"
           autoComplete="new-password"
           required
-          minLength={12}
+          minLength={8}
           autoFocus
           className="input mt-1.5"
           aria-describedby="hint"
         />
         <p id="hint" className="mt-1 text-sm text-ink-subtle">
-          At least 12 characters. A short sentence works well.
+          At least 8 characters.
         </p>
       </div>
 
@@ -109,7 +109,7 @@ export function ResetPasswordForm() {
           type="password"
           autoComplete="new-password"
           required
-          minLength={12}
+          minLength={8}
           className="input mt-1.5"
         />
       </div>
