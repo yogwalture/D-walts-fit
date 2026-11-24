@@ -23,6 +23,45 @@ const url =
 
 const prisma = new PrismaClient({ datasources: { db: { url } } });
 
+/**
+ * The demo gyms below are fabricated: invented members, invoices and
+ * payments. They belong in a developer's database and in CI, where the
+ * isolation suite needs two tenants holding deliberately identical data.
+ * They do not belong in a database serving real gyms, where they would show
+ * up as fake members and fake money in the platform's own reporting -- and
+ * `pnpm db:seed` is one careless command away from putting them there.
+ *
+ * The signal worth trusting is the host, not NODE_ENV, which nobody
+ * remembers to set when running a one-off script. A local database is a
+ * developer's; anything else is somebody's live data until stated
+ * otherwise. A connection string we cannot parse counts as not local, so
+ * the unreadable case fails closed.
+ *
+ * Only the demo gyms are gated. The reference data above them -- the
+ * permission registry, the system roles, the plans, the shared exercise
+ * library -- is idempotent and is meant to be re-run against production
+ * whenever it changes.
+ */
+const LOCAL_HOSTS = new Set([
+  'localhost',
+  '127.0.0.1',
+  '::1',
+  'host.docker.internal',
+]);
+
+function databaseHost(connectionString: string | undefined): string {
+  if (!connectionString) return 'unknown';
+  try {
+    return new URL(connectionString).hostname.replace(/^\[|\]$/g, '') || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+const host = databaseHost(url);
+const hostIsLocal = LOCAL_HOSTS.has(host);
+const demoTenantsAllowed = hostIsLocal || process.env.SEED_DEMO_TENANTS === 'yes';
+
 const log = (msg: string) => process.stdout.write(`  ${msg}\n`);
 
 async function seedPermissions() {
@@ -481,6 +520,17 @@ async function main() {
   await seedSharedExercises();
 
   process.stdout.write('\ndemo tenants\n');
+  if (!demoTenantsAllowed) {
+    log(`skipped — ${host} is not a local database`);
+    log('set SEED_DEMO_TENANTS=yes to seed fabricated gyms there anyway');
+    process.stdout.write('\nDone.\n\n');
+    return;
+  }
+
+  if (!hostIsLocal) {
+    log(`WARNING: writing fabricated gyms to ${host}`);
+  }
+
   await seedDemoGym({
     slug: 'iron-temple',
     name: 'Iron Temple Fitness',
