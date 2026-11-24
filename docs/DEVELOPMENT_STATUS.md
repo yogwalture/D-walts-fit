@@ -1,6 +1,6 @@
 # Development status
 
-Updated: 19 November 2026
+Updated: 24 November 2026
 Phase: **9 — Hardening**
 
 This file is the single honest record of what works, what does not, and what
@@ -407,6 +407,33 @@ Recorded because each one says something about where the bugs actually are.
 ---
 
 ## Changelog
+
+**24 November 2026 — A password rule people can actually satisfy, and one
+trial length**
+Registration was turning gym owners away at the door. The password field
+demanded length, mixed case, a digit and a symbol, and refused anything a
+strength meter disliked — four separate ways to fail before anyone had seen
+the product. The rule is now one sentence: eight characters or more. The
+Zod schema, the server-side check, and the hints on register-gym,
+accept-invitation and reset-password were all changed together, so the form
+and the handler cannot disagree about what is acceptable.
+
+Two checks stayed, because neither asks anything of someone typing honestly:
+the breach list still refuses the few thousand passwords that are guessed
+first, and a password still cannot contain the owner's own name or email.
+Those catch real attacks; a symbol requirement mostly catches `Password1!`.
+
+Trials were 14 days on three plans and 30 on Enterprise, for no reason
+anyone recorded. Every plan is now seven days. `provisioning.ts` reads
+`trialDays` off the plan row rather than a constant, so the live
+`platform_plans` rows were updated in the same breath as the seed — four
+rows, verified at 7 afterwards. The seed file alone would have changed
+nothing for a gym registering today.
+
+Merged as PR #1 (seven commits, one per file) so the host deployed once
+rather than seven times. CI green: lint, types, migrations, isolation.
+Verified against the live site — `minLength="8"`, the hint reads "At least
+8 characters", and every plan on /register-gym now offers seven days.
 
 **21 November 2026 — Workouts, and lint rules that had never run**
 The sidebar had carried an entry marked unbuilt since the scaffold. Six
