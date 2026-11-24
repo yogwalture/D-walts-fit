@@ -93,7 +93,7 @@ const COMMON_PASSWORDS = new Set([
  */
 export function assessPassword(plain: string, context: string[] = []): string[] {
   const problems: string[] = [];
-  if (plain.length < 12) problems.push('Use at least 12 characters.');
+  if (plain.length < 8) problems.push('Use at least 8 characters.');
   if (COMMON_PASSWORDS.has(plain.toLowerCase())) {
     problems.push('That password appears in breach lists. Choose another.');
   }
