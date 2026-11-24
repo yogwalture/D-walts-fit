@@ -8,9 +8,9 @@ import { email, phone, uuid } from './common';
  */
 export const password = z
   .string()
-  .min(12, 'Use at least 12 characters')
+  .min(8, 'Use at least 8 characters')
   .max(200)
-  .refine((v) => v.trim().length >= 12, 'Spaces alone do not count');
+  .refine((v) => v.trim().length >= 8, 'Spaces alone do not count');
 
 export const loginInput = z.object({
   email,

@@ -20,7 +20,7 @@ export default async function RegisterGymPage() {
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-semibold tracking-tight text-ink">Register your gym</h1>
           <p className="mt-1 text-base text-ink-muted">
-            Free for 14 days. No card required.
+            Free for 7 days. No card required.
           </p>
         </div>
 

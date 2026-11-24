@@ -88,12 +88,12 @@ export function AcceptInvitationForm({
           type="password"
           autoComplete="new-password"
           required
-          minLength={12}
+          minLength={8}
           className="input mt-1.5"
           aria-describedby="hint"
         />
         <p id="hint" className="mt-1 text-sm text-ink-subtle">
-          At least 12 characters. Nobody else can see it — not even the gym owner.
+          At least 8 characters. Nobody else can see it — not even the gym owner.
         </p>
       </div>
 

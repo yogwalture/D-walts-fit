@@ -98,14 +98,14 @@ async function seedPlatformPlans() {
     {
       key: 'STARTER', name: 'Starter', monthlyPrice: 1499, annualPrice: 14990,
       maxMembers: 200, maxBranches: 1, maxStaff: 5, maxStorageMb: 2048,
-      whatsappCredits: 1000, trialDays: 14, displayOrder: 1,
+      whatsappCredits: 1000, trialDays: 7, displayOrder: 1,
       tagline: 'One branch, up to 200 members',
       features: ['members', 'memberships', 'attendance', 'billing', 'whatsapp', 'member_app'],
     },
     {
       key: 'GROWTH', name: 'Growth', monthlyPrice: 2999, annualPrice: 29990,
       maxMembers: 750, maxBranches: 2, maxStaff: 15, maxStorageMb: 10240,
-      whatsappCredits: 5000, trialDays: 14, displayOrder: 2,
+      whatsappCredits: 5000, trialDays: 7, displayOrder: 2,
       tagline: 'Two branches, CRM and classes',
       features: ['members', 'memberships', 'attendance', 'billing', 'whatsapp', 'member_app',
                  'crm', 'classes', 'workouts', 'inventory', 'reports'],
@@ -113,7 +113,7 @@ async function seedPlatformPlans() {
     {
       key: 'PROFESSIONAL', name: 'Professional', monthlyPrice: 5999, annualPrice: 59990,
       maxMembers: 2500, maxBranches: 5, maxStaff: 50, maxStorageMb: 51200,
-      whatsappCredits: 20000, trialDays: 14, displayOrder: 3,
+      whatsappCredits: 20000, trialDays: 7, displayOrder: 3,
       tagline: 'Multi-branch, video library, white-label',
       features: ['members', 'memberships', 'attendance', 'billing', 'whatsapp', 'member_app',
                  'crm', 'classes', 'workouts', 'inventory', 'reports', 'video', 'payroll',
@@ -122,7 +122,7 @@ async function seedPlatformPlans() {
     {
       key: 'ENTERPRISE', name: 'Enterprise', monthlyPrice: 11999, annualPrice: 119990,
       maxMembers: null, maxBranches: null, maxStaff: null, maxStorageMb: 204800,
-      whatsappCredits: 100000, trialDays: 30, displayOrder: 4,
+      whatsappCredits: 100000, trialDays: 7, displayOrder: 4,
       tagline: 'Unlimited scale, custom domain, priority support',
       features: ['members', 'memberships', 'attendance', 'billing', 'whatsapp', 'member_app',
                  'crm', 'classes', 'workouts', 'inventory', 'reports', 'video', 'payroll',

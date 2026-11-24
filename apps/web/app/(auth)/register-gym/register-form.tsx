@@ -117,7 +117,7 @@ export function RegisterForm({ plans }: { plans: SignupPlan[] }) {
           </label>
         ))}
         <p className="text-sm text-ink-subtle">
-          Free for the first {plans.find((p) => p.key === plan)?.trialDays ?? 14} days, and you
+          Free for the first {plans.find((p) => p.key === plan)?.trialDays ?? 7} days, and you
           can change plan afterwards.
         </p>
       </fieldset>
@@ -132,13 +132,13 @@ export function RegisterForm({ plans }: { plans: SignupPlan[] }) {
           type="password"
           autoComplete="new-password"
           required
-          minLength={12}
+          minLength={8}
           className="input mt-1.5"
           aria-describedby="password-hint"
           aria-invalid={Boolean(fieldErrors.password)}
         />
         <p id="password-hint" className="mt-1 text-sm text-ink-subtle">
-          At least 12 characters. A short sentence works well and is easier to remember.
+          At least 8 characters.
         </p>
         {fieldErrors.password && <p className="field-error">{fieldErrors.password}</p>}
       </div>
