@@ -9,6 +9,7 @@ import {
   type ActorContext,
 } from '@gym/core';
 import { readBearerToken, readSessionToken } from './session-cookie';
+import { MAX_BODY_BYTES, readJsonBody } from './json-body';
 
 /**
  * The route handler wrapper.
@@ -42,6 +43,8 @@ interface RouteOptions<TInput> {
   public?: boolean;
   /** Where the input comes from. Defaults to the JSON body. */
   source?: 'body' | 'query';
+  /** Overrides {@link MAX_BODY_BYTES} for a route that genuinely needs more. */
+  maxBodyBytes?: number;
 }
 
 /**
@@ -177,7 +180,7 @@ export function route<TInput = unknown, TOutput = unknown>(
         const raw =
           options.source === 'query'
             ? Object.fromEntries(new URL(request.url).searchParams)
-            : await request.json().catch(() => ({}));
+            : await readJsonBody(request, options.maxBodyBytes ?? MAX_BODY_BYTES);
         input = options.schema.parse(raw);
       }
 

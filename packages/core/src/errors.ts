@@ -35,6 +35,8 @@ export type ErrorCode =
   | 'SUBSCRIPTION_NOT_ACTIVE'
   | 'CLASS_FULL'
   | 'INVOICE_ALREADY_PAID'
+  // 413
+  | 'PAYLOAD_TOO_LARGE'
   // 422
   | 'VALIDATION_FAILED'
   // 429
@@ -71,6 +73,7 @@ const STATUS: Record<ErrorCode, number> = {
   SUBSCRIPTION_NOT_ACTIVE: 409,
   CLASS_FULL: 409,
   INVOICE_ALREADY_PAID: 409,
+  PAYLOAD_TOO_LARGE: 413,
   VALIDATION_FAILED: 422,
   RATE_LIMITED: 429,
   INTERNAL_ERROR: 500,
@@ -145,6 +148,21 @@ export const FEATURE_LABEL: Record<string, string> = {
 };
 
 export const notFound = (what = 'Record') => new AppError('NOT_FOUND', `${what} not found.`);
+
+/**
+ * The body was refused before anything parsed it.
+ *
+ * Validation runs over a value that is already in memory, so a schema
+ * cannot defend against the cost of getting it there: `request.json()` has
+ * to allocate the whole document first, and a validator that walks a
+ * million-element array allocates again for every element it rejects. The
+ * only cheap place to say no is before the read.
+ */
+export const payloadTooLarge = (limitBytes: number) =>
+  new AppError(
+    'PAYLOAD_TOO_LARGE',
+    `That request is larger than ${Math.round(limitBytes / 1024)} KB.`,
+  );
 
 export const validationFailed = (details: ErrorDetail[]) =>
   new AppError('VALIDATION_FAILED', 'Please correct the highlighted fields.', details);
