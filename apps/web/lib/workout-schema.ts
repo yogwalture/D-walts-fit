@@ -34,7 +34,14 @@ export const workoutPlanBody = z.object({
             tempo: z.string().trim().max(20).optional(),
             trainerNotes: z.string().trim().max(500).optional(),
           }),
-        ),
+        )
+          // Bounded on purpose. Every other array in the contract layer
+          // carries a limit; this one did not, and an unbounded array is
+          // the one shape that turns a validator into a denial of service
+          // -- an issue object is allocated per failing element, so the
+          // cost of rejecting a list grows with the list. Fifty exercises
+          // is already more than any trainer writes for a single day.
+          .max(50),
       }),
     )
     .min(1)
